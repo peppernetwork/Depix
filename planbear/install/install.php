@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS employees (
     time_mode ENUM('full','week','day') NOT NULL DEFAULT 'full',
     week_time_start TIME NULL,
     week_time_end TIME NULL,
+    pause_minuten SMALLINT NULL COMMENT 'NULL = Systemstandard verwenden',
+    urlaub_zusatz_tage SMALLINT NOT NULL DEFAULT 0,
     is_active TINYINT(1) DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -146,12 +148,28 @@ CREATE TABLE IF NOT EXISTS schedule_entries (
     employee_id INT NOT NULL,
     entry_date DATE NOT NULL,
     hours DECIMAL(5,2) NOT NULL,
+    pause_minuten SMALLINT NOT NULL DEFAULT 0,
     time_start TIME NULL,
     time_end TIME NULL,
     is_vacation_period TINYINT(1) DEFAULT 0,
     FOREIGN KEY (revision_id) REFERENCES schedule_revisions(id) ON DELETE CASCADE,
     FOREIGN KEY (employee_id) REFERENCES employees(id),
     UNIQUE KEY unique_entry (revision_id, employee_id, entry_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS employee_vacations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_id INT NOT NULL,
+    school_year_id INT NOT NULL,
+    vacation_date DATE NOT NULL,
+    status ENUM('geplant','genehmigt','genommen') NOT NULL DEFAULT 'geplant',
+    notes VARCHAR(255),
+    created_by INT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    FOREIGN KEY (school_year_id) REFERENCES school_years(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE KEY unique_emp_date (employee_id, vacation_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS settings (

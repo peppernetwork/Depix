@@ -52,26 +52,38 @@ $bz_end   = get_setting($pdo, 'betreuungszeit_end',   '15:30');
 
 $errors = [];
 $form   = [
-    'name'           => $is_edit ? decrypt($emp['name_enc']) : '',
-    'vacation_hours' => $is_edit ? (string)$emp['vacation_hours'] : '0',
-    'available_days' => $is_edit ? explode(',', $emp['available_days']) : ['0','1','2','3','4'],
-    'time_mode'      => $is_edit ? ($emp['time_mode'] ?? 'full') : 'full',
-    'week_time_start'=> $is_edit ? substr($emp['week_time_start'] ?? '', 0, 5) : $bz_start,
-    'week_time_end'  => $is_edit ? substr($emp['week_time_end']   ?? '', 0, 5) : $bz_end,
-    'day_times'      => $day_times_db,
+    'name'               => $is_edit ? decrypt($emp['name_enc']) : '',
+    'vacation_hours'     => $is_edit ? (string)$emp['vacation_hours'] : '0',
+    'available_days'     => $is_edit ? explode(',', $emp['available_days']) : ['0','1','2','3','4'],
+    'time_mode'          => $is_edit ? ($emp['time_mode'] ?? 'full') : 'full',
+    'week_time_start'    => $is_edit ? substr($emp['week_time_start'] ?? '', 0, 5) : $bz_start,
+    'week_time_end'      => $is_edit ? substr($emp['week_time_end']   ?? '', 0, 5) : $bz_end,
+    'day_times'          => $day_times_db,
+    'pause_minuten'      => $is_edit ? $emp['pause_minuten']      : null,
+    'urlaub_zusatz_tage' => $is_edit ? (int)$emp['urlaub_zusatz_tage'] : 0,
 ];
+
+// System defaults for placeholder text
+$sys_pause_min = get_setting($pdo, 'pause_dauer_minuten', '30');
+$sys_pause_ab  = get_setting($pdo, 'pause_ab_stunden',    '6');
+$sys_url_std   = get_setting($pdo, 'urlaub_standard_tage', '20');
 
 // ─── POST handler ──────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $errors[] = 'Ungültige Anfrage (CSRF).';
     } else {
-        $name       = trim($_POST['name'] ?? '');
-        $vacay      = $_POST['vacation_hours'] ?? '0';
-        $days       = $_POST['available_days'] ?? [];
-        $time_mode  = $_POST['time_mode'] ?? 'full';
-        $wts        = trim($_POST['week_time_start'] ?? '');
-        $wte        = trim($_POST['week_time_end']   ?? '');
+        $name           = trim($_POST['name'] ?? '');
+        $vacay          = $_POST['vacation_hours'] ?? '0';
+        $days           = $_POST['available_days'] ?? [];
+        $time_mode      = $_POST['time_mode'] ?? 'full';
+        $wts            = trim($_POST['week_time_start'] ?? '');
+        $wte            = trim($_POST['week_time_end']   ?? '');
+        // Pause: empty string → NULL (use system default)
+        $pause_raw      = trim($_POST['pause_minuten'] ?? '');
+        $pause_val      = ($pause_raw === '') ? null : (int)$pause_raw;
+        // Urlaub
+        $url_zusatz     = max(0, (int)($_POST['urlaub_zusatz_tage'] ?? 0));
 
         // Collect per-day times from POST
         $posted_day_times = [];
@@ -121,13 +133,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $form = [
-            'name'           => $name,
-            'vacation_hours' => $vacay,
-            'available_days' => $days,
-            'time_mode'      => $time_mode,
-            'week_time_start'=> $wts,
-            'week_time_end'  => $wte,
-            'day_times'      => $posted_day_times,
+            'name'               => $name,
+            'vacation_hours'     => $vacay,
+            'available_days'     => $days,
+            'time_mode'          => $time_mode,
+            'week_time_start'    => $wts,
+            'week_time_end'      => $wte,
+            'day_times'          => $posted_day_times,
+            'pause_minuten'      => $pause_val,
+            'urlaub_zusatz_tage' => $url_zusatz,
         ];
 
         // Collect and validate selected shifts
@@ -144,13 +158,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($is_edit) {
                     $stmt = $pdo->prepare(
                         'UPDATE employees SET name_enc=?, vacation_hours=?, available_days=?,
-                         time_mode=?, week_time_start=?, week_time_end=? WHERE id=?'
+                         time_mode=?, week_time_start=?, week_time_end=?,
+                         pause_minuten=?, urlaub_zusatz_tage=? WHERE id=?'
                     );
                     $stmt->execute([
                         $name_enc, (float)$vacay, $days_str,
                         $time_mode,
                         $time_mode === 'week' ? $wts : null,
                         $time_mode === 'week' ? $wte : null,
+                        $pause_val,
+                        $url_zusatz,
                         $emp_id,
                     ]);
                     $pdo->prepare('DELETE FROM employee_day_times WHERE employee_id=?')->execute([$emp_id]);
@@ -158,13 +175,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $stmt = $pdo->prepare(
                         'INSERT INTO employees (name_enc, vacation_hours, available_days,
-                         time_mode, week_time_start, week_time_end) VALUES (?,?,?,?,?,?)'
+                         time_mode, week_time_start, week_time_end,
+                         pause_minuten, urlaub_zusatz_tage) VALUES (?,?,?,?,?,?,?,?)'
                     );
                     $stmt->execute([
                         $name_enc, (float)$vacay, $days_str,
                         $time_mode,
                         $time_mode === 'week' ? $wts : null,
                         $time_mode === 'week' ? $wte : null,
+                        $pause_val,
+                        $url_zusatz,
                     ]);
                     $emp_id = (int)$pdo->lastInsertId();
                 }
@@ -414,6 +434,52 @@ require __DIR__ . '/../templates/header.php';
                             <?php endforeach; ?>
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <hr class="my-4">
+
+            <!-- ── Pausenzeit ──────────────────────────────────────── -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold">
+                    <i class="bi bi-cup-hot-fill text-secondary"></i>
+                    Pausenzeit (individuell)
+                </label>
+                <div class="d-flex align-items-center gap-3">
+                    <div class="input-group" style="max-width:180px;">
+                        <input type="number" class="form-control" name="pause_minuten"
+                               id="pause_minuten"
+                               value="<?= $form['pause_minuten'] !== null ? h((string)$form['pause_minuten']) : '' ?>"
+                               min="0" max="120" step="5"
+                               placeholder="Standard">
+                        <span class="input-group-text">min</span>
+                    </div>
+                    <div class="text-muted small">
+                        Leer lassen = Systemstandard
+                        (<?= h($sys_pause_min) ?> min ab <?= h($sys_pause_ab) ?> Std.)
+                    </div>
+                </div>
+                <div class="form-text">0 = keine Pause</div>
+            </div>
+
+            <!-- ── Urlaubsanspruch ─────────────────────────────────── -->
+            <div class="mb-4">
+                <label class="form-label fw-semibold">
+                    <i class="bi bi-umbrella-fill text-info"></i>
+                    Zusätzliche Urlaubstage
+                </label>
+                <div class="d-flex align-items-center gap-3">
+                    <div class="input-group" style="max-width:180px;">
+                        <span class="input-group-text">+</span>
+                        <input type="number" class="form-control" name="urlaub_zusatz_tage"
+                               value="<?= h((string)$form['urlaub_zusatz_tage']) ?>"
+                               min="0" max="365" step="1">
+                        <span class="input-group-text">Tage</span>
+                    </div>
+                    <div class="text-muted small">
+                        Gesamt: <strong><?= h($sys_url_std) ?> + X Tage</strong>
+                        Standardanspruch (<?= h($sys_url_std) ?> Tage) gilt systemweit.
+                    </div>
                 </div>
             </div>
 

@@ -38,5 +38,10 @@ function default_settings(): array {
         'ferien_standard_arbeit'  => '0',
         'planung_wochentage'      => '0,1,2,3,4',
         'planung_notiz'           => '',
+        // Pausen
+        'pause_dauer_minuten'     => '30',
+        'pause_ab_stunden'        => '6',
+        // Urlaub
+        'urlaub_standard_tage'    => '20',
     ];
 }

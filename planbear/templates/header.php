@@ -68,6 +68,12 @@ $user = current_user();
                     </a>
                 </li>
                 <?php endif; ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($active_nav ?? '') === 'urlaub' ? 'active' : '' ?>"
+                       href="/planbear/public/urlaub.php">
+                        <i class="bi bi-umbrella-fill"></i> Urlaub
+                    </a>
+                </li>
                 <?php if (has_role('admin')): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'benutzer' ? 'active' : '' ?>"

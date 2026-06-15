@@ -30,6 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'betreuungszeit_end',
         'ferien_standard_arbeit',
         'planung_notiz',
+        'pause_dauer_minuten',
+        'pause_ab_stunden',
+        'urlaub_standard_tage',
     ];
 
     $errors = [];
@@ -46,14 +49,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors) && $bz_start >= $bz_end) {
         $errors[] = 'Betreuungszeit Beginn muss vor dem Ende liegen.';
     }
+    // Validate numeric fields
+    $pause_min = (int)($_POST['pause_dauer_minuten'] ?? 30);
+    $pause_ab  = (float)str_replace(',', '.', $_POST['pause_ab_stunden'] ?? '6');
+    $url_std   = (int)($_POST['urlaub_standard_tage'] ?? 20);
+    if ($pause_min < 0 || $pause_min > 120) {
+        $errors[] = 'Pausendauer muss zwischen 0 und 120 Minuten liegen.';
+    }
+    if ($pause_ab < 0 || $pause_ab > 24) {
+        $errors[] = 'Pausenpflicht ab Stunden muss zwischen 0 und 24 liegen.';
+    }
+    if ($url_std < 0 || $url_std > 365) {
+        $errors[] = 'Standard-Urlaubstage muss zwischen 0 und 365 liegen.';
+    }
 
     if (empty($errors)) {
         foreach ($allowed as $key) {
             $val = trim($_POST[$key] ?? '');
-            // Sanitize
             if ($key === 'ferien_standard_arbeit') {
                 $val = isset($_POST[$key]) && $_POST[$key] === '1' ? '1' : '0';
             }
+            if ($key === 'pause_dauer_minuten') $val = (string)$pause_min;
+            if ($key === 'pause_ab_stunden')    $val = number_format($pause_ab, 1, '.', '');
+            if ($key === 'urlaub_standard_tage') $val = (string)$url_std;
             set_setting($pdo, $key, $val);
         }
         flash('success', 'Einstellungen gespeichert.');
@@ -180,6 +198,62 @@ require __DIR__ . '/../templates/header.php';
                 <label class="form-label fw-semibold">Allgemeine Notiz zur Planung</label>
                 <textarea class="form-control" name="planung_notiz" rows="3" maxlength="1000"
                           placeholder="Interne Hinweise, die bei der Planungserstellung angezeigt werden…"><?= h($s['planung_notiz']) ?></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Pausen ───────────────────────────────────────────────────────── -->
+    <div class="card pb-card mb-4" style="max-width:680px;">
+        <div class="card-header">
+            <i class="bi bi-cup-hot-fill"></i> Pausenzeiten
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Systemweite Pausenregel. Mitarbeiter können davon individuell abweichen.
+            </p>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Pausendauer</label>
+                    <div class="input-group" style="max-width:180px;">
+                        <input type="number" class="form-control" name="pause_dauer_minuten"
+                               value="<?= h($s['pause_dauer_minuten']) ?>"
+                               min="0" max="120" step="5">
+                        <span class="input-group-text">min</span>
+                    </div>
+                    <div class="form-text">Länge der Pause in Minuten</div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Pausenpflicht ab</label>
+                    <div class="input-group" style="max-width:180px;">
+                        <input type="number" class="form-control" name="pause_ab_stunden"
+                               value="<?= h($s['pause_ab_stunden']) ?>"
+                               min="0" max="24" step="0.5">
+                        <span class="input-group-text">Std.</span>
+                    </div>
+                    <div class="form-text">Bei &ge; X Stunden Arbeitszeit ist die Pause vorgeschrieben. 0 = immer.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Urlaub ────────────────────────────────────────────────────────── -->
+    <div class="card pb-card mb-4" style="max-width:680px;">
+        <div class="card-header">
+            <i class="bi bi-umbrella-fill"></i> Urlaubsanspruch
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Gesetzlicher Mindesturlaub (BUrlG). Mitarbeiter k&ouml;nnen zus&auml;tzliche Tage erhalten.
+            </p>
+            <div class="mb-0">
+                <label class="form-label fw-semibold">Standard-Urlaubstage pro Jahr</label>
+                <div class="input-group" style="max-width:180px;">
+                    <input type="number" class="form-control" name="urlaub_standard_tage"
+                           value="<?= h($s['urlaub_standard_tage']) ?>"
+                           min="20" max="365" step="1">
+                    <span class="input-group-text">Tage</span>
+                </div>
+                <div class="form-text">Gesetzliches Minimum: 20 Tage (5-Tage-Woche).</div>
             </div>
         </div>
     </div>

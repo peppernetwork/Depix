@@ -42,18 +42,32 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
     }
 
     // --- Global settings ---
-    $bz_start = get_setting($pdo, 'betreuungszeit_start', '12:00');
-    $bz_end   = get_setting($pdo, 'betreuungszeit_end',   '15:30');
+    $bz_start        = get_setting($pdo, 'betreuungszeit_start',  '12:00');
+    $bz_end          = get_setting($pdo, 'betreuungszeit_end',    '15:30');
+    $sys_pause_min   = (int)get_setting($pdo, 'pause_dauer_minuten', '30');
+    $sys_pause_ab    = (float)get_setting($pdo, 'pause_ab_stunden',  '6');
 
     // --- Active employees ---
     $stmt = $pdo->prepare(
-        'SELECT id, vacation_hours, available_days, time_mode, week_time_start, week_time_end
+        'SELECT id, vacation_hours, available_days, time_mode, week_time_start, week_time_end,
+                pause_minuten
          FROM employees WHERE is_active = 1 ORDER BY id'
     );
     $stmt->execute();
     $employees = $stmt->fetchAll();
     if (empty($employees)) {
         return 0;
+    }
+
+    // --- Approved/planned vacation dates per employee ---
+    $emp_vacations = []; // [employee_id][date_string] = true
+    $stmt = $pdo->prepare(
+        "SELECT employee_id, vacation_date FROM employee_vacations
+         WHERE school_year_id = ? AND status IN ('geplant','genehmigt','genommen')"
+    );
+    $stmt->execute([$school_year_id]);
+    foreach ($stmt->fetchAll() as $r) {
+        $emp_vacations[(int)$r['employee_id']][$r['vacation_date']] = true;
     }
 
     // --- Per-day times for all employees (mode='day') ---
@@ -102,8 +116,8 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
     // --- Prepare insert statement ---
     $insert = $pdo->prepare(
         'INSERT IGNORE INTO schedule_entries
-             (revision_id, employee_id, entry_date, hours, time_start, time_end, is_vacation_period)
-         VALUES (?, ?, ?, ?, ?, ?, ?)'
+             (revision_id, employee_id, entry_date, hours, pause_minuten, time_start, time_end, is_vacation_period)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     );
 
     // --- Iterate week by week ---
@@ -168,12 +182,18 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
                 $target_override = null;
             }
 
-            // Find available working days (available + not holiday + within range)
+            // Resolve employee's break time
+            $emp_pause_min = ($emp['pause_minuten'] !== null)
+                ? (int)$emp['pause_minuten']
+                : $sys_pause_min;
+
+            // Find available working days (available + not holiday + not on vacation + within range)
             $working_days = []; // [day_index => date_string]
             foreach ($emp_days as $day_idx) {
                 if (!isset($week_dates[$day_idx])) continue;
                 $ds = $week_dates[$day_idx];
                 if (isset($holidays[$ds])) continue;
+                if (isset($emp_vacations[$emp_id][$ds])) continue; // employee on vacation
                 $working_days[$day_idx] = $ds;
             }
 
@@ -233,11 +253,22 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
 
                 if ($hours_per_day <= 0) continue;
 
+                // Apply break deduction if gross hours >= pause threshold
+                $pause_for_entry = 0;
+                if ($emp_pause_min > 0 && $sys_pause_ab <= $hours_per_day) {
+                    $pause_for_entry = $emp_pause_min;
+                    // Net hours = gross - break (minimum 0)
+                    $hours_per_day = max(0.0, round($hours_per_day - $pause_for_entry / 60, 2));
+                }
+
+                if ($hours_per_day <= 0) continue;
+
                 $insert->execute([
                     $revision_id,
                     $emp_id,
                     $ds,
                     $hours_per_day,
+                    $pause_for_entry,
                     $t_start,
                     $t_end,
                     $in_vacation ? 1 : 0,
