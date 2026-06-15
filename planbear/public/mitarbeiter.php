@@ -1,0 +1,124 @@
+<?php
+declare(strict_types=1);
+ini_set('display_errors', '0');
+
+require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/crypto.php';
+require_once __DIR__ . '/../includes/auth.php';
+
+session_start_secure();
+require_auth(); // All roles can view
+
+$pdo = get_pdo();
+
+// Handle DELETE (admin only)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
+    require_auth(['admin']);
+    $token = $_POST['csrf_token'] ?? '';
+    if (!verify_csrf_token($token)) {
+        flash('error', 'Ungültige Anfrage (CSRF).');
+        redirect('mitarbeiter.php');
+    }
+    $id = req_int('id', $_POST);
+    if ($id) {
+        $stmt = $pdo->prepare('UPDATE employees SET is_active=0 WHERE id=?');
+        $stmt->execute([$id]);
+        flash('success', 'Mitarbeiter deaktiviert.');
+    }
+    redirect('mitarbeiter.php');
+}
+
+// Load all active employees
+$employees = $pdo->query('SELECT id, name_enc, weekly_hours, vacation_hours, available_days, is_active FROM employees ORDER BY id')->fetchAll();
+
+$page_title = 'Mitarbeiter';
+$active_nav = 'mitarbeiter';
+require __DIR__ . '/../templates/header.php';
+?>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="fw-bold mb-0" style="color:var(--pb-dark);">
+        <i class="bi bi-people-fill"></i> Mitarbeiter
+    </h1>
+    <?php if (has_role('editor','admin')): ?>
+    <a href="mitarbeiter_form.php" class="btn btn-pb-primary">
+        <i class="bi bi-person-plus-fill"></i> Neu anlegen
+    </a>
+    <?php endif; ?>
+</div>
+
+<?php if (empty($employees)): ?>
+    <div class="alert alert-info">
+        Noch keine Mitarbeiter angelegt.
+        <?php if (has_role('editor','admin')): ?>
+            <a href="mitarbeiter_form.php">Jetzt ersten Mitarbeiter anlegen</a>.
+        <?php endif; ?>
+    </div>
+<?php else: ?>
+<div class="card pb-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-pb table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>Wo.-Stunden</th>
+                        <th>Ferien-Std.</th>
+                        <th>Verf. Tage</th>
+                        <th>Status</th>
+                        <?php if (has_role('editor','admin')): ?>
+                        <th class="text-end">Aktionen</th>
+                        <?php endif; ?>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($employees as $emp): ?>
+                    <tr>
+                        <td class="text-muted small"><?= h((string)$emp['id']) ?></td>
+                        <td class="fw-semibold"><?= h(decrypt($emp['name_enc'])) ?></td>
+                        <td><?= h(number_format((float)$emp['weekly_hours'], 2, ',', '.')) ?> h</td>
+                        <td><?= h(number_format((float)$emp['vacation_hours'], 2, ',', '.')) ?> h</td>
+                        <td>
+                            <?php foreach (parse_available_days($emp['available_days']) as $day): ?>
+                                <span class="day-badge"><?= h($day) ?></span>
+                            <?php endforeach; ?>
+                        </td>
+                        <td>
+                            <?php if ($emp['is_active']): ?>
+                                <span class="badge bg-success">Aktiv</span>
+                            <?php else: ?>
+                                <span class="badge bg-secondary">Inaktiv</span>
+                            <?php endif; ?>
+                        </td>
+                        <?php if (has_role('editor','admin')): ?>
+                        <td class="text-end">
+                            <a href="mitarbeiter_form.php?id=<?= (int)$emp['id'] ?>"
+                               class="btn btn-sm btn-outline-secondary me-1">
+                                <i class="bi bi-pencil-fill"></i> Bearbeiten
+                            </a>
+                            <?php if (has_role('admin')): ?>
+                            <form method="post" action="mitarbeiter.php" class="d-inline">
+                                <?= csrf_input() ?>
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="id" value="<?= (int)$emp['id'] ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"
+                                        data-confirm="Mitarbeiter wirklich deaktivieren?">
+                                    <i class="bi bi-person-dash-fill"></i> Deaktivieren
+                                </button>
+                            </form>
+                            <?php endif; ?>
+                        </td>
+                        <?php endif; ?>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php require __DIR__ . '/../templates/footer.php'; ?>

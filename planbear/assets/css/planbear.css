@@ -1,0 +1,250 @@
+/* PlanBär — custom styles */
+/* Color palette: bear brown */
+:root {
+    --pb-dark:   #5C3317;
+    --pb-medium: #A0522D;
+    --pb-light:  #DEB887;
+    --pb-bg:     #FDF6EE;
+    --pb-accent: #8B4513;
+}
+
+body {
+    background-color: var(--pb-bg);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Navbar */
+.pb-navbar {
+    background: linear-gradient(135deg, var(--pb-dark) 0%, var(--pb-medium) 100%);
+    box-shadow: 0 2px 8px rgba(92,51,23,0.4);
+}
+
+.pb-navbar .navbar-brand,
+.pb-navbar .nav-link {
+    color: var(--pb-light) !important;
+}
+
+.pb-navbar .nav-link:hover,
+.pb-navbar .nav-link.active {
+    color: #fff !important;
+    background-color: rgba(255,255,255,0.15);
+    border-radius: 6px;
+}
+
+.pb-navbar .nav-link.active {
+    font-weight: 600;
+}
+
+.pb-role-badge {
+    background-color: var(--pb-light);
+    color: var(--pb-dark);
+    font-size: 0.7rem;
+    vertical-align: middle;
+}
+
+/* Cards */
+.pb-card {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(92,51,23,0.12);
+    transition: box-shadow 0.2s;
+}
+
+.pb-card:hover {
+    box-shadow: 0 4px 20px rgba(92,51,23,0.2);
+}
+
+.pb-card .card-header {
+    background: linear-gradient(135deg, var(--pb-dark), var(--pb-medium));
+    color: var(--pb-light);
+    border-radius: 12px 12px 0 0 !important;
+    font-weight: 600;
+}
+
+/* Buttons */
+.btn-pb-primary {
+    background: var(--pb-medium);
+    border-color: var(--pb-medium);
+    color: #fff;
+}
+.btn-pb-primary:hover {
+    background: var(--pb-dark);
+    border-color: var(--pb-dark);
+    color: #fff;
+}
+.btn-pb-outline {
+    border: 2px solid var(--pb-medium);
+    color: var(--pb-medium);
+    background: transparent;
+}
+.btn-pb-outline:hover {
+    background: var(--pb-medium);
+    color: #fff;
+}
+
+/* Dashboard quick-action cards */
+.pb-action-card {
+    border-radius: 12px;
+    border: 2px solid var(--pb-light);
+    transition: all 0.2s;
+    cursor: pointer;
+    text-decoration: none;
+    color: var(--pb-dark);
+}
+.pb-action-card:hover {
+    border-color: var(--pb-medium);
+    background: var(--pb-light);
+    color: var(--pb-dark);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(92,51,23,0.18);
+}
+.pb-action-card .pb-action-icon {
+    font-size: 2.5rem;
+    color: var(--pb-medium);
+}
+
+/* Schedule table */
+.pb-schedule-table {
+    font-size: 0.88rem;
+}
+.pb-schedule-table th {
+    background-color: var(--pb-dark);
+    color: var(--pb-light);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.pb-schedule-table td.holiday {
+    background-color: #ffe0e0;
+    color: #a00;
+    font-style: italic;
+}
+.pb-schedule-table td.vacation {
+    background-color: #fff8dc;
+    color: #806010;
+    font-style: italic;
+}
+.pb-schedule-table td.entry {
+    background-color: #eaf4e8;
+}
+.pb-schedule-table td.editable:hover {
+    background-color: #d4edda;
+    cursor: pointer;
+}
+.pb-schedule-table td input.inline-edit {
+    width: 70px;
+    border: 1px solid var(--pb-medium);
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-size: 0.88rem;
+}
+.pb-schedule-table .emp-name {
+    white-space: nowrap;
+    font-weight: 600;
+    background-color: #f8f2ec;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    border-right: 2px solid var(--pb-light);
+}
+
+/* Day badges */
+.day-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--pb-light);
+    color: var(--pb-dark);
+    margin: 1px;
+}
+
+/* Login page */
+.pb-login-wrapper {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--pb-dark) 0%, var(--pb-medium) 60%, var(--pb-light) 100%);
+}
+.pb-login-card {
+    width: 100%;
+    max-width: 420px;
+    border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+}
+.pb-login-logo {
+    font-size: 3rem;
+    text-align: center;
+    margin-bottom: 0.25rem;
+}
+.pb-login-title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--pb-dark);
+    text-align: center;
+}
+
+/* Footer */
+.pb-footer {
+    background: var(--pb-dark);
+    color: var(--pb-light);
+}
+
+/* Table helpers */
+.table-pb thead th {
+    background-color: var(--pb-dark);
+    color: var(--pb-light);
+}
+.table-pb tbody tr:hover {
+    background-color: #f5ebe0;
+}
+
+/* Calendar container */
+#pb-calendar {
+    min-height: 600px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 12px rgba(92,51,23,0.1);
+}
+
+/* Stat boxes on dashboard */
+.pb-stat {
+    border-radius: 12px;
+    padding: 1.2rem 1.5rem;
+    text-align: center;
+    color: #fff;
+}
+.pb-stat-1 { background: var(--pb-dark); }
+.pb-stat-2 { background: var(--pb-medium); }
+.pb-stat-3 { background: var(--pb-accent); }
+.pb-stat-4 { background: #7a5230; }
+.pb-stat .stat-value {
+    font-size: 2.2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+.pb-stat .stat-label {
+    font-size: 0.85rem;
+    opacity: 0.85;
+    margin-top: 4px;
+}
+
+/* Alert overrides */
+.alert {
+    border-radius: 10px;
+}
+
+/* Role chip colors */
+.role-admin   { background: #5C3317; color: #fff; }
+.role-editor  { background: #A0522D; color: #fff; }
+.role-viewer  { background: #DEB887; color: #5C3317; }
+.role-chip {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 50px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
