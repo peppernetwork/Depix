@@ -13,9 +13,9 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/hessen_calendar.php';
 
-// --- Connect to MySQL (without selecting a DB yet) ---
+// --- Connect to MySQL ---
 try {
-    $dsn = sprintf('mysql:host=%s;charset=%s', DB_HOST, DB_CHARSET);
+    $dsn = sprintf('mysql:host=%s;dbname=%s;charset=%s', DB_HOST, DB_NAME, DB_CHARSET);
     $pdo = new PDO($dsn, DB_USER, DB_PASS, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -45,12 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'install
     } elseif ($admin_pw !== $admin_pw2) {
         $admin_pw_error = 'Passwörter stimmen nicht überein.';
     } else {
-        // ----------------------------------------------------------------
-        // Step 1: Create database if not exists
-        // ----------------------------------------------------------------
-        $pdo->exec('CREATE DATABASE IF NOT EXISTS `' . DB_NAME . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-        $pdo->exec('USE `' . DB_NAME . '`');
-        $messages[] = ['ok', 'Datenbank erstellt / vorhanden: ' . DB_NAME];
+        $messages[] = ['ok', 'Datenbankverbindung erfolgreich: ' . DB_NAME];
 
         // ----------------------------------------------------------------
         // Step 2: Create tables
