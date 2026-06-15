@@ -34,7 +34,7 @@ $user_count = has_role('admin')
 
 $page_title = 'Dashboard';
 $active_nav = 'dashboard';
-require __DIR__ . '/../templates/header.php';
+require __DIR__ . '/templates/header.php';
 ?>
 
 <h1 class="mb-4 fw-bold" style="color:var(--pb-dark);">
@@ -150,4 +150,4 @@ require __DIR__ . '/../templates/header.php';
 </div>
 <?php endif; ?>
 
-<?php require __DIR__ . '/../templates/footer.php'; ?>
+<?php require __DIR__ . '/templates/footer.php'; ?>

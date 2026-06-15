@@ -117,7 +117,7 @@ $users = $pdo->query(
 
 $page_title = 'Benutzerverwaltung';
 $active_nav = 'benutzer';
-require __DIR__ . '/../templates/header.php';
+require __DIR__ . '/templates/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -326,4 +326,4 @@ document.getElementById('resetPwModal').addEventListener('show.bs.modal', functi
 });
 </script>
 
-<?php require __DIR__ . '/../templates/footer.php'; ?>
+<?php require __DIR__ . '/templates/footer.php'; ?>

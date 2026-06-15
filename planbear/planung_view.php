@@ -123,7 +123,7 @@ foreach ($employees as $emp) {
 
 $page_title = 'Plan: ' . $schedule['name'];
 $active_nav = 'planung';
-require __DIR__ . '/../templates/header.php';
+require __DIR__ . '/templates/header.php';
 ?>
 <input type="hidden" id="csrf-token-value" value="<?= h(generate_csrf_token()) ?>">
 
@@ -356,4 +356,4 @@ require __DIR__ . '/../templates/header.php';
 </div>
 <?php endif; ?>
 
-<?php require __DIR__ . '/../templates/footer.php'; ?>
+<?php require __DIR__ . '/templates/footer.php'; ?>

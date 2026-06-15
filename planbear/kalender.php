@@ -47,7 +47,7 @@ if ($revision_id) {
 
 $page_title = 'Kalender';
 $active_nav = 'kalender';
-require __DIR__ . '/../templates/header.php';
+require __DIR__ . '/templates/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
@@ -115,4 +115,4 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 <?php endif; ?>
 
-<?php require __DIR__ . '/../templates/footer.php'; ?>
+<?php require __DIR__ . '/templates/footer.php'; ?>

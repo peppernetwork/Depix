@@ -228,7 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $day_labels = [0=>'Mo', 1=>'Di', 2=>'Mi', 3=>'Do', 4=>'Fr'];
 $page_title = $is_edit ? 'Mitarbeiter bearbeiten' : 'Mitarbeiter anlegen';
 $active_nav = 'mitarbeiter';
-require __DIR__ . '/../templates/header.php';
+require __DIR__ . '/templates/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -590,4 +590,4 @@ require __DIR__ . '/../templates/header.php';
 })();
 </script>
 
-<?php require __DIR__ . '/../templates/footer.php'; ?>
+<?php require __DIR__ . '/templates/footer.php'; ?>

@@ -106,7 +106,7 @@ $shifts = $pdo->query(
 
 $page_title = 'Schichten';
 $active_nav = 'schichten';
-require __DIR__ . '/../templates/header.php';
+require __DIR__ . '/templates/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -295,4 +295,4 @@ document.getElementById('sf-color')?.addEventListener('input', function () {
 });
 </script>
 
-<?php require __DIR__ . '/../templates/footer.php'; ?>
+<?php require __DIR__ . '/templates/footer.php'; ?>

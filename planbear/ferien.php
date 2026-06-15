@@ -117,7 +117,7 @@ foreach ($all_sy as $s) {
 
 $page_title = 'Ferien & Feiertage';
 $active_nav = 'ferien';
-require __DIR__ . '/../templates/header.php';
+require __DIR__ . '/templates/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
@@ -297,4 +297,4 @@ require __DIR__ . '/../templates/header.php';
 </div>
 <?php endif; ?>
 
-<?php require __DIR__ . '/../templates/footer.php'; ?>
+<?php require __DIR__ . '/templates/footer.php'; ?>

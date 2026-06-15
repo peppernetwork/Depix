@@ -130,7 +130,7 @@ $de_days_short = [1=>'Mo',2=>'Di',3=>'Mi',4=>'Do',5=>'Fr'];
 
 $page_title = 'Plan: ' . $schedule['name'] . ' – ' . $month_label;
 $active_nav = 'planung';
-require __DIR__ . '/../templates/header.php';
+require __DIR__ . '/templates/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
@@ -342,4 +342,4 @@ require __DIR__ . '/../templates/header.php';
 </div>
 <?php endif; ?>
 
-<?php require __DIR__ . '/../templates/footer.php'; ?>
+<?php require __DIR__ . '/templates/footer.php'; ?>

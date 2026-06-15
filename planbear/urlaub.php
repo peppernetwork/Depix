@@ -179,7 +179,7 @@ $status_colors = ['geplant'=>'secondary','genehmigt'=>'primary','genommen'=>'suc
 
 $page_title = 'Urlaubsplanung';
 $active_nav = 'urlaub';
-require __DIR__ . '/../templates/header.php';
+require __DIR__ . '/templates/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
@@ -442,4 +442,4 @@ document.getElementById('url_from')?.addEventListener('change', function () {
 });
 </script>
 
-<?php require __DIR__ . '/../templates/footer.php'; ?>
+<?php require __DIR__ . '/templates/footer.php'; ?>
