@@ -60,6 +60,14 @@ $user = current_user();
                         <i class="bi bi-sun-fill"></i> Ferien
                     </a>
                 </li>
+                <?php if (has_role('editor','admin')): ?>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($active_nav ?? '') === 'schichten' ? 'active' : '' ?>"
+                       href="/planbear/public/schichten.php">
+                        <i class="bi bi-clock-history"></i> Schichten
+                    </a>
+                </li>
+                <?php endif; ?>
                 <?php if (has_role('admin')): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'benutzer' ? 'active' : '' ?>"

@@ -67,6 +67,25 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
         ];
     }
 
+    // --- Shift assignments per employee ---
+    // [employee_id => [['time_start'=>'HH:MM','time_end'=>'HH:MM', 'name'=>...], ...]]
+    $emp_shifts = [];
+    $stmt = $pdo->prepare(
+        'SELECT es.employee_id, s.time_start, s.time_end, s.name, s.short_name
+         FROM employee_shifts es
+         JOIN shifts s ON s.id = es.shift_id
+         ORDER BY s.sort_order, s.id'
+    );
+    $stmt->execute();
+    foreach ($stmt->fetchAll() as $row) {
+        $emp_id_key = (int)$row['employee_id'];
+        $emp_shifts[$emp_id_key][] = [
+            'time_start' => substr($row['time_start'], 0, 5),
+            'time_end'   => substr($row['time_end'],   0, 5),
+            'name'       => $row['name'],
+        ];
+    }
+
     // --- Public holidays as a date-string set ---
     $stmt = $pdo->prepare('SELECT holiday_date FROM public_holidays WHERE school_year_id = ?');
     $stmt->execute([$school_year_id]);
@@ -161,40 +180,55 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
             if (empty($working_days)) continue;
 
             // Resolve time range and hours per day
+            $emp_shift_list = $emp_shifts[$emp_id] ?? [];
+            $has_shifts     = !empty($emp_shift_list);
+
             foreach ($working_days as $day_idx => $ds) {
-                switch ($time_mode) {
-                    case 'week':
-                        $t_start = substr($emp['week_time_start'] ?? $bz_start, 0, 5);
-                        $t_end   = substr($emp['week_time_end']   ?? $bz_end,   0, 5);
-                        if (!$t_start || !$t_end) {
+
+                if ($has_shifts) {
+                    // ── Shift-based: sum all assigned shift durations ──────
+                    $total_hours = 0.0;
+                    $t_start     = null;
+                    $t_end       = null;
+                    foreach ($emp_shift_list as $sh) {
+                        $sh_hours = time_to_hours($sh['time_start'], $sh['time_end']);
+                        $total_hours += $sh_hours;
+                        // Track earliest start and latest end for display
+                        if ($t_start === null || $sh['time_start'] < $t_start) {
+                            $t_start = $sh['time_start'];
+                        }
+                        if ($t_end === null || $sh['time_end'] > $t_end) {
+                            $t_end = $sh['time_end'];
+                        }
+                    }
+                    $hours_per_day = round($total_hours, 2);
+                } else {
+                    // ── time_mode-based fallback ───────────────────────────
+                    switch ($time_mode) {
+                        case 'week':
+                            $t_start = substr($emp['week_time_start'] ?? $bz_start, 0, 5) ?: $bz_start;
+                            $t_end   = substr($emp['week_time_end']   ?? $bz_end,   0, 5) ?: $bz_end;
+                            break;
+                        case 'day':
+                            if (isset($day_times[$emp_id][$day_idx])) {
+                                $t_start = $day_times[$emp_id][$day_idx]['start'];
+                                $t_end   = $day_times[$emp_id][$day_idx]['end'];
+                            } else {
+                                $t_start = $bz_start;
+                                $t_end   = $bz_end;
+                            }
+                            break;
+                        default: // 'full'
                             $t_start = $bz_start;
                             $t_end   = $bz_end;
-                        }
-                        break;
-
-                    case 'day':
-                        if (isset($day_times[$emp_id][$day_idx])) {
-                            $t_start = $day_times[$emp_id][$day_idx]['start'];
-                            $t_end   = $day_times[$emp_id][$day_idx]['end'];
-                        } else {
-                            // Fallback to global if no day-time defined
-                            $t_start = $bz_start;
-                            $t_end   = $bz_end;
-                        }
-                        break;
-
-                    default: // 'full'
-                        $t_start = $bz_start;
-                        $t_end   = $bz_end;
-                        break;
+                            break;
+                    }
+                    $hours_per_day = time_to_hours($t_start, $t_end);
                 }
 
-                $hours_per_day = time_to_hours($t_start, $t_end);
-
-                // If override from vacation_hours: distribute weekly total across working days
+                // During vacation: distribute weekly vacation_hours instead
                 if ($target_override !== null) {
                     $hours_per_day = round($target_override / count($working_days), 2);
-                    // Keep times from the mode, but adjust hours to the vacation target
                 }
 
                 if ($hours_per_day <= 0) continue;

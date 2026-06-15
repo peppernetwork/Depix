@@ -37,6 +37,15 @@ if ($is_edit) {
     }
 }
 
+// Load all defined shifts + which are assigned to this employee
+$all_shifts = $pdo->query('SELECT * FROM shifts ORDER BY sort_order, id')->fetchAll();
+$emp_shift_ids = [];
+if ($is_edit && $emp_id) {
+    $stmt = $pdo->prepare('SELECT shift_id FROM employee_shifts WHERE employee_id = ?');
+    $stmt->execute([$emp_id]);
+    $emp_shift_ids = array_column($stmt->fetchAll(), 'shift_id');
+}
+
 // Load global Betreuungszeit for placeholder
 $bz_start = get_setting($pdo, 'betreuungszeit_start', '12:00');
 $bz_end   = get_setting($pdo, 'betreuungszeit_end',   '15:30');
@@ -121,6 +130,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'day_times'      => $posted_day_times,
         ];
 
+        // Collect and validate selected shifts
+        $selected_shift_ids = array_map('intval', array_filter($_POST['shift_ids'] ?? [], 'is_numeric'));
+        $valid_shift_ids    = array_column($all_shifts, 'id');
+        $selected_shift_ids = array_values(array_intersect($selected_shift_ids, $valid_shift_ids));
+
         if (empty($errors)) {
             $name_enc = encrypt($name);
             $days_str = implode(',', $days);
@@ -133,25 +147,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                          time_mode=?, week_time_start=?, week_time_end=? WHERE id=?'
                     );
                     $stmt->execute([
-                        $name_enc,
-                        (float)$vacay,
-                        $days_str,
+                        $name_enc, (float)$vacay, $days_str,
                         $time_mode,
                         $time_mode === 'week' ? $wts : null,
                         $time_mode === 'week' ? $wte : null,
                         $emp_id,
                     ]);
-                    // Clear and re-insert per-day times
                     $pdo->prepare('DELETE FROM employee_day_times WHERE employee_id=?')->execute([$emp_id]);
+                    $pdo->prepare('DELETE FROM employee_shifts WHERE employee_id=?')->execute([$emp_id]);
                 } else {
                     $stmt = $pdo->prepare(
                         'INSERT INTO employees (name_enc, vacation_hours, available_days,
                          time_mode, week_time_start, week_time_end) VALUES (?,?,?,?,?,?)'
                     );
                     $stmt->execute([
-                        $name_enc,
-                        (float)$vacay,
-                        $days_str,
+                        $name_enc, (float)$vacay, $days_str,
                         $time_mode,
                         $time_mode === 'week' ? $wts : null,
                         $time_mode === 'week' ? $wte : null,
@@ -169,12 +179,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     foreach ($days as $d) {
                         $di = (int)$d;
                         if (isset($posted_day_times[$di])) {
-                            $dt_stmt->execute([
-                                $emp_id, $di,
-                                $posted_day_times[$di]['start'],
-                                $posted_day_times[$di]['end'],
-                            ]);
+                            $dt_stmt->execute([$emp_id, $di, $posted_day_times[$di]['start'], $posted_day_times[$di]['end']]);
                         }
+                    }
+                }
+
+                // Save shift assignments
+                if (!empty($selected_shift_ids)) {
+                    $sh_stmt = $pdo->prepare('INSERT IGNORE INTO employee_shifts (employee_id, shift_id) VALUES (?,?)');
+                    foreach ($selected_shift_ids as $sid) {
+                        $sh_stmt->execute([$emp_id, $sid]);
                     }
                 }
 
@@ -186,6 +200,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Datenbankfehler: ' . $e->getMessage();
             }
         }
+        // Keep selected shifts for re-display after error
+        $emp_shift_ids = $selected_shift_ids;
     }
 }
 
@@ -261,6 +277,52 @@ require __DIR__ . '/../templates/header.php';
                     <?php endforeach; ?>
                 </div>
             </div>
+
+            <hr class="my-4">
+
+            <!-- ── Dienste (Schichten) ─────────────────────────────── -->
+            <?php if (!empty($all_shifts)): ?>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">
+                    Dienste / Schichten
+                    <span class="text-muted fw-normal small">(1, 2 oder 3 Dienste wählbar)</span>
+                </label>
+                <div class="d-flex flex-column gap-2" id="shift-checkboxes">
+                    <?php foreach ($all_shifts as $sh):
+                        $checked = in_array((int)$sh['id'], array_map('intval', $emp_shift_ids));
+                        [$ss_h,$ss_m] = array_map('intval', explode(':', substr($sh['time_start'],0,5)));
+                        [$se_h,$se_m] = array_map('intval', explode(':', substr($sh['time_end'],  0,5)));
+                        $dur_min = ($se_h*60+$se_m) - ($ss_h*60+$ss_m);
+                        $dur_h   = intdiv($dur_min, 60);
+                        $dur_m   = $dur_min % 60;
+                        $dur_str = ($dur_h > 0 ? $dur_h.'h ' : '') . ($dur_m > 0 ? $dur_m.'min' : '');
+                    ?>
+                    <div class="form-check d-flex align-items-center gap-2">
+                        <input class="form-check-input shift-check" type="checkbox"
+                               name="shift_ids[]" value="<?= (int)$sh['id'] ?>"
+                               id="shift_<?= (int)$sh['id'] ?>"
+                               <?= $checked ? 'checked' : '' ?>>
+                        <label class="form-check-label d-flex align-items-center gap-2 cursor-pointer"
+                               for="shift_<?= (int)$sh['id'] ?>">
+                            <span class="badge" style="background:<?= h($sh['color']) ?>;min-width:2.5rem;">
+                                <?= h($sh['short_name']) ?>
+                            </span>
+                            <span class="fw-semibold"><?= h($sh['name']) ?></span>
+                            <span class="text-muted small">
+                                <?= h(substr($sh['time_start'],0,5)) ?>–<?= h(substr($sh['time_end'],0,5)) ?> Uhr
+                                (<?= h(trim($dur_str)) ?>)
+                            </span>
+                        </label>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="form-text mt-1">
+                    Gesamt: <strong id="shift-total-hours">—</strong>
+                    &nbsp;·&nbsp;
+                    Wenn Dienste gewählt, werden die Zeiten unten ignoriert.
+                </div>
+            </div>
+            <?php endif; ?>
 
             <hr class="my-4">
 
@@ -420,6 +482,32 @@ require __DIR__ . '/../templates/header.php';
     wts?.addEventListener('change', updateWeekDur);
     wte?.addEventListener('change', updateWeekDur);
     updateWeekDur();
+
+    // --- Shift total hours ---
+    const shiftData = {
+        <?php foreach ($all_shifts as $sh):
+            [$ss_h,$ss_m] = array_map('intval', explode(':', substr($sh['time_start'],0,5)));
+            [$se_h,$se_m] = array_map('intval', explode(':', substr($sh['time_end'],  0,5)));
+            $mins = ($se_h*60+$se_m) - ($ss_h*60+$ss_m);
+        ?>
+        <?= (int)$sh['id'] ?>: <?= max(0, $mins) ?>,
+        <?php endforeach; ?>
+    };
+    function updateShiftTotal() {
+        let total = 0;
+        document.querySelectorAll('.shift-check:checked').forEach(cb => {
+            total += shiftData[parseInt(cb.value)] || 0;
+        });
+        const el = document.getElementById('shift-total-hours');
+        if (!el) return;
+        if (total <= 0) { el.textContent = '—'; return; }
+        const h = Math.floor(total/60), m = total%60;
+        el.textContent = (h > 0 ? h+'h ' : '') + (m > 0 ? m+'min' : '') + ' pro Tag';
+    }
+    document.querySelectorAll('.shift-check').forEach(cb => {
+        cb.addEventListener('change', updateShiftTotal);
+    });
+    updateShiftTotal();
 
     // Per-day durations
     document.querySelectorAll('.day-time-start, .day-time-end').forEach(el => {

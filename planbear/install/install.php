@@ -160,6 +160,24 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS shifts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    short_name VARCHAR(10) NOT NULL DEFAULT '',
+    time_start TIME NOT NULL,
+    time_end TIME NOT NULL,
+    color VARCHAR(7) NOT NULL DEFAULT '#6c757d',
+    sort_order INT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS employee_shifts (
+    employee_id INT NOT NULL,
+    shift_id INT NOT NULL,
+    PRIMARY KEY (employee_id, shift_id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS login_log (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT,
@@ -223,6 +241,22 @@ SQL;
             $stmt_set->execute([$k, $v]);
         }
         $messages[] = ['ok', count($defaults) . ' Standard-Einstellungen gesetzt.'];
+
+        // ----------------------------------------------------------------
+        // Step 3c: Seed default shifts
+        // ----------------------------------------------------------------
+        $default_shifts = [
+            ['Frühdienst',      'FD', '11:30', '13:00', '#198754', 1],
+            ['Kernarbeitszeit', 'KA', '13:00', '15:30', '#0d6efd', 2],
+            ['Spätdienst',      'SD', '15:30', '17:30', '#fd7e14', 3],
+        ];
+        $stmt_sh = $pdo->prepare(
+            'INSERT IGNORE INTO shifts (name, short_name, time_start, time_end, color, sort_order) VALUES (?,?,?,?,?,?)'
+        );
+        foreach ($default_shifts as $sh) {
+            $stmt_sh->execute($sh);
+        }
+        $messages[] = ['ok', count($default_shifts) . ' Standard-Schichten angelegt (FD / KA / SD).'];
 
         // ----------------------------------------------------------------
         // Step 4: Create admin user

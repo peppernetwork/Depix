@@ -45,6 +45,18 @@ foreach ($pdo->query('SELECT employee_id, day_of_week, time_start, time_end FROM
     ];
 }
 
+// Load shift assignments per employee: [emp_id => [shift, ...]]
+$emp_shifts_all = [];
+$rows = $pdo->query(
+    'SELECT es.employee_id, s.name, s.short_name, s.color, s.time_start, s.time_end
+     FROM employee_shifts es
+     JOIN shifts s ON s.id = es.shift_id
+     ORDER BY s.sort_order, s.id'
+)->fetchAll();
+foreach ($rows as $r) {
+    $emp_shifts_all[(int)$r['employee_id']][] = $r;
+}
+
 $page_title = 'Mitarbeiter';
 $active_nav = 'mitarbeiter';
 require __DIR__ . '/../templates/header.php';
@@ -77,6 +89,7 @@ require __DIR__ . '/../templates/header.php';
                     <tr>
                         <th>#</th>
                         <th>Name</th>
+                        <th>Dienste</th>
                         <th>Arbeitszeit</th>
                         <th>Ferien-Std.</th>
                         <th>Verf. Tage</th>
@@ -91,6 +104,19 @@ require __DIR__ . '/../templates/header.php';
                     <tr>
                         <td class="text-muted small"><?= h((string)$emp['id']) ?></td>
                         <td class="fw-semibold"><?= h(decrypt($emp['name_enc'])) ?></td>
+                        <td>
+                            <?php
+                            $eid = (int)$emp['id'];
+                            if (!empty($emp_shifts_all[$eid])) {
+                                foreach ($emp_shifts_all[$eid] as $sh) {
+                                    echo '<span class="badge me-1" style="background:' . h($sh['color']) . ';">'
+                                        . h($sh['short_name']) . '</span>';
+                                }
+                            } else {
+                                echo '<span class="text-muted small">—</span>';
+                            }
+                            ?>
+                        </td>
                         <td>
                             <?php
                             $mode = $emp['time_mode'] ?? 'full';
