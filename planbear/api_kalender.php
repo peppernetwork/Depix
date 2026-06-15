@@ -2,11 +2,11 @@
 declare(strict_types=1);
 ini_set('display_errors', '0');
 
-require_once __DIR__ . '/../config/config.php';
-require_once __DIR__ . '/../includes/functions.php';
-require_once __DIR__ . '/../includes/db.php';
-require_once __DIR__ . '/../includes/crypto.php';
-require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/config/config.php';
+require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/crypto.php';
+require_once __DIR__ . '/includes/auth.php';
 
 session_start_secure();
 

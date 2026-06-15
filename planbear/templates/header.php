@@ -16,13 +16,13 @@ $user = current_user();
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <!-- PlanBär custom CSS -->
-    <link rel="stylesheet" href="/planbear/assets/css/planbear.css">
+    <link rel="stylesheet" href="/assets/css/planbear.css">
 </head>
 <body>
 <?php if ($user): ?>
 <nav class="navbar navbar-expand-lg pb-navbar">
     <div class="container-fluid">
-        <a class="navbar-brand fw-bold" href="/planbear/public/dashboard.php">
+        <a class="navbar-brand fw-bold" href="/dashboard.php">
             🐻 <?= h(APP_NAME) ?>
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
@@ -32,58 +32,58 @@ $user = current_user();
             <ul class="navbar-nav me-auto">
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'dashboard' ? 'active' : '' ?>"
-                       href="/planbear/public/dashboard.php">
+                       href="/dashboard.php">
                         <i class="bi bi-speedometer2"></i> Dashboard
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'mitarbeiter' ? 'active' : '' ?>"
-                       href="/planbear/public/mitarbeiter.php">
+                       href="/mitarbeiter.php">
                         <i class="bi bi-people-fill"></i> Mitarbeiter
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'planung' ? 'active' : '' ?>"
-                       href="/planbear/public/planung.php">
+                       href="/planung.php">
                         <i class="bi bi-calendar-week"></i> Planung
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'kalender' ? 'active' : '' ?>"
-                       href="/planbear/public/kalender.php">
+                       href="/kalender.php">
                         <i class="bi bi-calendar3"></i> Kalender
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'ferien' ? 'active' : '' ?>"
-                       href="/planbear/public/ferien.php">
+                       href="/ferien.php">
                         <i class="bi bi-sun-fill"></i> Ferien
                     </a>
                 </li>
                 <?php if (has_role('editor','admin')): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'schichten' ? 'active' : '' ?>"
-                       href="/planbear/public/schichten.php">
+                       href="/schichten.php">
                         <i class="bi bi-clock-history"></i> Schichten
                     </a>
                 </li>
                 <?php endif; ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'urlaub' ? 'active' : '' ?>"
-                       href="/planbear/public/urlaub.php">
+                       href="/urlaub.php">
                         <i class="bi bi-umbrella-fill"></i> Urlaub
                     </a>
                 </li>
                 <?php if (has_role('admin')): ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'benutzer' ? 'active' : '' ?>"
-                       href="/planbear/public/benutzer.php">
+                       href="/benutzer.php">
                         <i class="bi bi-shield-person"></i> Benutzer
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'einstellungen' ? 'active' : '' ?>"
-                       href="/planbear/public/einstellungen.php">
+                       href="/einstellungen.php">
                         <i class="bi bi-gear-fill"></i> Einstellungen
                     </a>
                 </li>
@@ -100,7 +100,7 @@ $user = current_user();
                         <li><span class="dropdown-item-text text-muted small">Angemeldet als <strong><?= h($user['username']) ?></strong></span></li>
                         <li><hr class="dropdown-divider"></li>
                         <li>
-                            <form method="post" action="/planbear/public/logout.php" class="d-inline">
+                            <form method="post" action="/logout.php" class="d-inline">
                                 <?= csrf_input() ?>
                                 <button type="submit" class="dropdown-item text-danger">
                                     <i class="bi bi-box-arrow-right"></i> Abmelden

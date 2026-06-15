@@ -3,11 +3,11 @@ declare(strict_types=1);
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
-require_once __DIR__ . '/../config/config.php';
-require_once __DIR__ . '/../includes/functions.php';
-require_once __DIR__ . '/../includes/db.php';
-require_once __DIR__ . '/../includes/crypto.php';
-require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/config/config.php';
+require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/crypto.php';
+require_once __DIR__ . '/includes/auth.php';
 
 session_start_secure();
 
@@ -67,7 +67,7 @@ $csrf = generate_csrf_token();
     <title>Anmelden &mdash; <?= h(APP_NAME) ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
           integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
-    <link rel="stylesheet" href="/planbear/assets/css/planbear.css">
+    <link rel="stylesheet" href="/assets/css/planbear.css">
 </head>
 <body>
 <div class="pb-login-wrapper">
