@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             try {
                 [$sched_id, $rev_id, $count] = create_schedule_with_revision($pdo, $sy_id, $name, $user['id']);
-                flash('success', "Plan „{$name}" erstellt mit {$count} Einträgen (Revision 1).");
+                flash('success', 'Plan "' . $name . '" erstellt mit ' . $count . ' Einträgen (Revision 1).');
                 redirect('planung_view.php?schedule_id=' . $sched_id . '&revision_id=' . $rev_id);
             } catch (Exception $e) {
                 flash('error', 'Fehler beim Erstellen: ' . $e->getMessage());

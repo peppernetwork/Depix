@@ -1,0 +1,70 @@
+# PlanBär root .htaccess
+# Deny direct access to config and includes directories
+
+Options -Indexes
+ServerSignature Off
+
+# Deny access to config directory
+<IfModule mod_authz_core.c>
+    <Directory "config">
+        Require all denied
+    </Directory>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <Directory "config">
+        Order deny,allow
+        Deny from all
+    </Directory>
+</IfModule>
+
+# Block direct PHP file access in includes/
+<FilesMatch "^(db|auth|crypto|scheduler|hessen_calendar|functions)\.php$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Block config.php wherever it is
+<Files "config.php">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</Files>
+
+# Block .installed lock file
+<Files ".installed">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</Files>
+
+# Security headers (requires mod_headers)
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net; font-src cdn.jsdelivr.net data:; img-src 'self' data:; connect-src 'self'"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+</IfModule>
+
+# PHP settings (if using mod_php or PHP-FPM with AllowOverride)
+<IfModule mod_php.c>
+    php_flag display_errors Off
+    php_value session.cookie_httponly 1
+    php_value session.cookie_samesite Strict
+    php_value session.use_strict_mode 1
+    php_value session.gc_maxlifetime 28800
+</IfModule>

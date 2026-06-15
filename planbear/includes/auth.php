@@ -45,7 +45,7 @@ function session_start_secure(): void {
  */
 function require_auth(array $roles = []): void {
     if (empty($_SESSION['user_id'])) {
-        redirect('../public/login.php');
+        redirect('/planbear/public/login.php');
     }
     if (!empty($roles) && !has_role(...$roles)) {
         http_response_code(403);

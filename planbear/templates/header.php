@@ -67,6 +67,12 @@ $user = current_user();
                         <i class="bi bi-shield-person"></i> Benutzer
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($active_nav ?? '') === 'einstellungen' ? 'active' : '' ?>"
+                       href="/planbear/public/einstellungen.php">
+                        <i class="bi bi-gear-fill"></i> Einstellungen
+                    </a>
+                </li>
                 <?php endif; ?>
             </ul>
             <ul class="navbar-nav ms-auto">

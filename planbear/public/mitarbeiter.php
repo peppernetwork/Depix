@@ -30,8 +30,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     redirect('mitarbeiter.php');
 }
 
-// Load all active employees
-$employees = $pdo->query('SELECT id, name_enc, weekly_hours, vacation_hours, available_days, is_active FROM employees ORDER BY id')->fetchAll();
+// Load all employees with time info
+$employees = $pdo->query(
+    'SELECT id, name_enc, weekly_hours, vacation_hours, available_days,
+            time_mode, week_time_start, week_time_end, is_active
+     FROM employees ORDER BY id'
+)->fetchAll();
+
+// Load per-day times keyed by employee_id + day
+$day_times_all = [];
+foreach ($pdo->query('SELECT employee_id, day_of_week, time_start, time_end FROM employee_day_times') as $r) {
+    $day_times_all[(int)$r['employee_id']][(int)$r['day_of_week']] = [
+        substr($r['time_start'], 0, 5), substr($r['time_end'], 0, 5)
+    ];
+}
 
 $page_title = 'Mitarbeiter';
 $active_nav = 'mitarbeiter';
@@ -65,7 +77,7 @@ require __DIR__ . '/../templates/header.php';
                     <tr>
                         <th>#</th>
                         <th>Name</th>
-                        <th>Wo.-Stunden</th>
+                        <th>Arbeitszeit</th>
                         <th>Ferien-Std.</th>
                         <th>Verf. Tage</th>
                         <th>Status</th>
@@ -79,7 +91,27 @@ require __DIR__ . '/../templates/header.php';
                     <tr>
                         <td class="text-muted small"><?= h((string)$emp['id']) ?></td>
                         <td class="fw-semibold"><?= h(decrypt($emp['name_enc'])) ?></td>
-                        <td><?= h(number_format((float)$emp['weekly_hours'], 2, ',', '.')) ?> h</td>
+                        <td>
+                            <?php
+                            $mode = $emp['time_mode'] ?? 'full';
+                            $eid  = (int)$emp['id'];
+                            $day_labels_short = ['Mo','Di','Mi','Do','Fr'];
+                            if ($mode === 'full') {
+                                echo '<span class="badge bg-secondary">Voll</span>';
+                            } elseif ($mode === 'week') {
+                                $ts = substr($emp['week_time_start'] ?? '', 0, 5);
+                                $te = substr($emp['week_time_end']   ?? '', 0, 5);
+                                echo '<span class="text-nowrap small">' . h($ts) . '–' . h($te) . ' Uhr</span>';
+                            } else {
+                                // day mode — show compact per-day
+                                $parts = [];
+                                foreach ($day_times_all[$eid] ?? [] as $di => $t) {
+                                    $parts[] = '<span class="text-nowrap">' . $day_labels_short[$di] . ' ' . h($t[0]) . '–' . h($t[1]) . '</span>';
+                                }
+                                echo $parts ? implode('<br>', $parts) : '<span class="text-muted small">—</span>';
+                            }
+                            ?>
+                        </td>
                         <td><?= h(number_format((float)$emp['vacation_hours'], 2, ',', '.')) ?> h</td>
                         <td>
                             <?php foreach (parse_available_days($emp['available_days']) as $day): ?>
