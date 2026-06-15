@@ -9,9 +9,9 @@ if (file_exists(__DIR__ . '/.installed')) {
     die('<h2>Installation bereits abgeschlossen. Diese Datei wurde deaktiviert.</h2>');
 }
 
-require_once __DIR__ . '/../config/config.php';
-require_once __DIR__ . '/../includes/functions.php';
-require_once __DIR__ . '/../includes/hessen_calendar.php';
+require_once dirname(__DIR__) . '/config/config.php';
+require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/hessen_calendar.php';
 
 // --- Connect to MySQL ---
 try {
@@ -245,7 +245,7 @@ SQL;
         // ----------------------------------------------------------------
         // Step 3b: Seed default settings
         // ----------------------------------------------------------------
-        require_once __DIR__ . '/../includes/settings.php';
+        require_once dirname(__DIR__) . '/includes/settings.php';
         $defaults = default_settings();
         $stmt_set = $pdo->prepare('INSERT IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)');
         foreach ($defaults as $k => $v) {
@@ -273,7 +273,7 @@ SQL;
         // Step 4: Create admin user
         // ----------------------------------------------------------------
         // Load crypto after DB is available
-        require_once __DIR__ . '/../includes/crypto.php';
+        require_once dirname(__DIR__) . '/includes/crypto.php';
 
         $hash      = password_hash($admin_pw, PASSWORD_BCRYPT, ['cost' => 12]);
         $name_enc  = encrypt($admin_name);

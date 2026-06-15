@@ -49,9 +49,9 @@ function require_auth(array $roles = []): void {
     }
     if (!empty($roles) && !has_role(...$roles)) {
         http_response_code(403);
-        require __DIR__ . '/../templates/header.php';
+        require dirname(__DIR__) . '/templates/header.php';
         echo '<div class="container mt-5"><div class="alert alert-danger"><strong>Zugriff verweigert.</strong> Sie haben keine Berechtigung für diese Seite.</div></div>';
-        require __DIR__ . '/../templates/footer.php';
+        require dirname(__DIR__) . '/templates/footer.php';
         exit;
     }
 }
