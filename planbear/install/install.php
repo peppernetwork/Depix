@@ -133,8 +133,7 @@ CREATE TABLE IF NOT EXISTS schedule_revisions (
     created_by INT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     notes TEXT,
-    FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON SET NULL
+    FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS schedule_entries (
@@ -193,11 +192,10 @@ CREATE TABLE IF NOT EXISTS employee_shifts (
 
 CREATE TABLE IF NOT EXISTS login_log (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT,
+    user_id INT DEFAULT NULL,
     ip_address VARCHAR(45),
     success TINYINT(1),
-    attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 SQL;
 
