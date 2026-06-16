@@ -29,6 +29,23 @@ function ensure_location_tables(PDO $pdo): void {
         $pdo->exec('ALTER TABLE schedule_entries ADD COLUMN location_id INT DEFAULT NULL');
         $pdo->exec('ALTER TABLE schedule_entries ADD FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL');
     }
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS schedule_entry_locations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            revision_id INT NOT NULL,
+            employee_id INT NOT NULL,
+            entry_date DATE NOT NULL,
+            shift_id INT DEFAULT NULL,
+            location_id INT NOT NULL,
+            time_start TIME NOT NULL,
+            time_end TIME NOT NULL,
+            FOREIGN KEY (revision_id) REFERENCES schedule_revisions(id) ON DELETE CASCADE,
+            FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+            FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL,
+            FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
+            KEY idx_entry (revision_id, employee_id, entry_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
 }
 
 /** Preferred location IDs for an employee (multi-select, may be empty). */
@@ -60,4 +77,62 @@ function pick_random_location(array $all_location_ids, array $preferred_ids): ?i
         return null;
     }
     return (int)$pool[array_rand($pool)];
+}
+
+/**
+ * Location/time segments for all entries of an employee in a date range,
+ * keyed by [employee_id][entry_date] => list of segment rows (each with
+ * location_name/location_color and, if tied to a shift, shift_short_name),
+ * ordered by start time.
+ */
+function get_location_segments_map(PDO $pdo, int $revision_id, string $date_from, string $date_to): array {
+    $stmt = $pdo->prepare(
+        'SELECT sel.id, sel.employee_id, sel.entry_date, sel.shift_id, sel.location_id,
+                sel.time_start, sel.time_end,
+                l.name AS location_name, l.color AS location_color,
+                sh.short_name AS shift_short_name, sh.color AS shift_color
+         FROM schedule_entry_locations sel
+         JOIN locations l ON l.id = sel.location_id
+         LEFT JOIN shifts sh ON sh.id = sel.shift_id
+         WHERE sel.revision_id = ? AND sel.entry_date BETWEEN ? AND ?
+         ORDER BY sel.time_start, sel.id'
+    );
+    $stmt->execute([$revision_id, $date_from, $date_to]);
+    $map = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $map[(int)$row['employee_id']][$row['entry_date']][] = $row;
+    }
+    return $map;
+}
+
+/** Add a location/time segment for an employee's day. Returns the new segment id. */
+function add_location_segment(
+    PDO $pdo,
+    int $revision_id,
+    int $employee_id,
+    string $entry_date,
+    ?int $shift_id,
+    int $location_id,
+    string $time_start,
+    string $time_end
+): int {
+    $stmt = $pdo->prepare(
+        'INSERT INTO schedule_entry_locations
+         (revision_id, employee_id, entry_date, shift_id, location_id, time_start, time_end)
+         VALUES (?,?,?,?,?,?,?)'
+    );
+    $stmt->execute([$revision_id, $employee_id, $entry_date, $shift_id, $location_id, $time_start, $time_end]);
+    return (int)$pdo->lastInsertId();
+}
+
+/** Delete a single location segment by id, scoped to a revision (authorization). */
+function delete_location_segment(PDO $pdo, int $segment_id, int $revision_id): void {
+    $pdo->prepare('DELETE FROM schedule_entry_locations WHERE id = ? AND revision_id = ?')
+        ->execute([$segment_id, $revision_id]);
+}
+
+/** Remove all location segments for an employee's day (used before re-assigning). */
+function clear_location_segments(PDO $pdo, int $revision_id, int $employee_id, string $entry_date): void {
+    $pdo->prepare('DELETE FROM schedule_entry_locations WHERE revision_id=? AND employee_id=? AND entry_date=?')
+        ->execute([$revision_id, $employee_id, $entry_date]);
 }

@@ -222,6 +222,22 @@ CREATE TABLE IF NOT EXISTS employee_location_preferences (
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS schedule_entry_locations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    revision_id INT NOT NULL,
+    employee_id INT NOT NULL,
+    entry_date DATE NOT NULL,
+    shift_id INT DEFAULT NULL,
+    location_id INT NOT NULL,
+    time_start TIME NOT NULL,
+    time_end TIME NOT NULL,
+    FOREIGN KEY (revision_id) REFERENCES schedule_revisions(id) ON DELETE CASCADE,
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL,
+    FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
+    KEY idx_entry (revision_id, employee_id, entry_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS login_log (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT DEFAULT NULL,

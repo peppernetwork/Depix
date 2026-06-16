@@ -73,23 +73,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'zufal
             flash('error', 'Es sind noch keine Orte definiert.');
         } else {
             $entries_stmt = $pdo->prepare(
-                'SELECT employee_id, entry_date FROM schedule_entries
+                'SELECT employee_id, entry_date, time_start, time_end FROM schedule_entries
                  WHERE revision_id=? AND entry_date BETWEEN ? AND ? AND hours > 0'
             );
             $entries_stmt->execute([$revision_id, $week_dates[0], $week_dates[4]]);
-            $update_stmt = $pdo->prepare(
-                'UPDATE schedule_entries SET location_id=? WHERE revision_id=? AND employee_id=? AND entry_date=?'
+            $shifts_stmt = $pdo->prepare(
+                'SELECT s.id, s.time_start, s.time_end FROM employee_shifts es
+                 JOIN shifts s ON s.id = es.shift_id WHERE es.employee_id = ?'
             );
-            $pref_cache = [];
+            $pref_cache  = [];
+            $shift_cache = [];
             foreach ($entries_stmt->fetchAll() as $row) {
                 $eid = (int)$row['employee_id'];
                 if (!isset($pref_cache[$eid])) {
                     $pref_cache[$eid] = get_employee_location_preferences($pdo, $eid);
                 }
-                $loc = pick_random_location($all_location_ids, $pref_cache[$eid]);
-                $update_stmt->execute([$loc, $revision_id, $eid, $row['entry_date']]);
+                if (!isset($shift_cache[$eid])) {
+                    $shifts_stmt->execute([$eid]);
+                    $shift_cache[$eid] = $shifts_stmt->fetchAll();
+                }
+                clear_location_segments($pdo, $revision_id, $eid, $row['entry_date']);
+                if (!empty($shift_cache[$eid])) {
+                    foreach ($shift_cache[$eid] as $sh) {
+                        $loc = pick_random_location($all_location_ids, $pref_cache[$eid]);
+                        if ($loc !== null) {
+                            add_location_segment(
+                                $pdo, $revision_id, $eid, $row['entry_date'],
+                                (int)$sh['id'], $loc, $sh['time_start'], $sh['time_end']
+                            );
+                        }
+                    }
+                } elseif ($row['time_start'] && $row['time_end']) {
+                    $loc = pick_random_location($all_location_ids, $pref_cache[$eid]);
+                    if ($loc !== null) {
+                        add_location_segment(
+                            $pdo, $revision_id, $eid, $row['entry_date'],
+                            null, $loc, $row['time_start'], $row['time_end']
+                        );
+                    }
+                }
             }
             flash('success', 'Orte für diese Woche zufällig zugeteilt.');
+        }
+    }
+    redirect('planung_view.php?schedule_id=' . $schedule_id . '&revision_id=' . $revision_id . '&week=' . $week_monday->format('Y-m-d'));
+}
+
+// ─── Add / delete a single location segment ────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_location_segment') {
+    require_auth(['editor','admin']);
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        flash('error', 'Ungültige Anfrage (CSRF).');
+    } else {
+        $emp_id_p    = req_int('employee_id', $_POST);
+        $entry_date  = $_POST['entry_date'] ?? '';
+        $shift_id_p  = req_int('shift_id', $_POST);
+        $location_id = req_int('location_id', $_POST);
+        $time_start  = $_POST['time_start'] ?? '';
+        $time_end    = $_POST['time_end'] ?? '';
+
+        if (!$emp_id_p || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $entry_date) || !$location_id
+            || !preg_match('/^\d{2}:\d{2}$/', $time_start) || !preg_match('/^\d{2}:\d{2}$/', $time_end)
+            || $time_end <= $time_start) {
+            flash('error', 'Ungültige Eingabe für die Zuteilung.');
+        } else {
+            add_location_segment(
+                $pdo, $revision_id, $emp_id_p, $entry_date,
+                $shift_id_p ?: null, $location_id, $time_start, $time_end
+            );
+            flash('success', 'Ort zugeteilt.');
+        }
+    }
+    redirect('planung_view.php?schedule_id=' . $schedule_id . '&revision_id=' . $revision_id . '&week=' . $week_monday->format('Y-m-d'));
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_location_segment') {
+    require_auth(['editor','admin']);
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        flash('error', 'Ungültige Anfrage (CSRF).');
+    } else {
+        $segment_id = req_int('segment_id', $_POST);
+        if ($segment_id) {
+            delete_location_segment($pdo, $segment_id, $revision_id);
+            flash('success', 'Zuteilung entfernt.');
         }
     }
     redirect('planung_view.php?schedule_id=' . $schedule_id . '&revision_id=' . $revision_id . '&week=' . $week_monday->format('Y-m-d'));
@@ -130,12 +196,15 @@ foreach ($stmt->fetchAll() as $r) {
 $employees = $pdo->query('SELECT id, name_enc FROM employees WHERE is_active=1 ORDER BY id')->fetchAll();
 
 $emp_shifts_all = [];
-$rows = $pdo->query('SELECT es.employee_id, s.name, s.short_name, s.color FROM employee_shifts es JOIN shifts s ON s.id=es.shift_id ORDER BY s.sort_order')->fetchAll();
+$rows = $pdo->query(
+    'SELECT es.employee_id, s.id AS shift_id, s.name, s.short_name, s.color, s.time_start, s.time_end
+     FROM employee_shifts es JOIN shifts s ON s.id=es.shift_id ORDER BY s.sort_order'
+)->fetchAll();
 foreach ($rows as $r) $emp_shifts_all[(int)$r['employee_id']][] = $r;
 
 // Schedule entries with time info
 $stmt = $pdo->prepare(
-    'SELECT employee_id, entry_date, hours, pause_minuten, time_start, time_end, is_vacation_period, location_id
+    'SELECT employee_id, entry_date, hours, pause_minuten, time_start, time_end, is_vacation_period
      FROM schedule_entries WHERE revision_id=? AND entry_date BETWEEN ? AND ?'
 );
 $stmt->execute([$revision_id, $week_dates[0], $week_dates[4]]);
@@ -144,14 +213,14 @@ foreach ($stmt->fetchAll() as $e) {
     $entry_map[$e['employee_id']][$e['entry_date']] = $e;
 }
 
-// Locations (Zuteilung) + per-employee preferences
-$locations  = $pdo->query('SELECT * FROM locations ORDER BY sort_order, id')->fetchAll();
-$loc_by_id  = [];
-foreach ($locations as $loc) { $loc_by_id[(int)$loc['id']] = $loc; }
-$emp_loc_pref_map = [];
-foreach ($employees as $emp) {
-    $emp_loc_pref_map[(int)$emp['id']] = get_employee_location_preferences($pdo, (int)$emp['id']);
-}
+// Locations (Zuteilung)
+$locations = $pdo->query('SELECT * FROM locations ORDER BY sort_order, id')->fetchAll();
+
+// Location/time segments (multi-location-per-day Zuteilung) for this week
+$location_segments = get_location_segments_map($pdo, $revision_id, $week_dates[0], $week_dates[4]);
+
+// All defined shifts, for the "add segment" modal's shift selector
+$all_shifts = $pdo->query('SELECT id, name, short_name, time_start, time_end FROM shifts ORDER BY sort_order')->fetchAll();
 
 $de_days = ['Mo', 'Di', 'Mi', 'Do', 'Fr'];
 
@@ -311,21 +380,16 @@ require __DIR__ . '/templates/header.php';
             <tr>
                 <td class="emp-name">
                     <div><?= h($name) ?></div>
-                    <?php if (!empty($shifts)): ?>
-                    <div class="mt-1">
-                        <?php foreach ($shifts as $sh): ?>
-                            <span class="badge small" style="background:<?= h($sh['color']) ?>;"><?= h($sh['short_name']) ?></span>
-                        <?php endforeach; ?>
-                    </div>
-                    <?php endif; ?>
                 </td>
 
-                <?php foreach ($week_dates as $wd):
+                <?php foreach ($week_dates as $di => $wd):
                     $is_holiday  = isset($holiday_map[$wd]);
                     $is_ferien   = isset($vacation_map[$wd]);
                     $is_urlaub   = isset($emp_vacation_map[$eid][$wd]);
                     $entry       = $entry_map[$eid][$wd] ?? null;
                     $can_edit    = has_role('editor','admin');
+                    $day_shifts  = $shifts;
+                    $day_segs    = $location_segments[$eid][$wd] ?? [];
                 ?>
                     <?php if ($is_holiday): ?>
                     <td class="holiday text-center small">
@@ -359,37 +423,47 @@ require __DIR__ . '/templates/header.php';
                         <?php if ($is_ferien): ?>
                             <div class="text-warning-emphasis" style="font-size:0.7rem;">Ferien</div>
                         <?php endif; ?>
-                        <?php if (!empty($locations)):
-                            $cur_loc = isset($entry['location_id']) && $entry['location_id'] !== null
-                                ? ($loc_by_id[(int)$entry['location_id']] ?? null) : null;
-                        ?>
-                            <?php if ($can_edit): ?>
-                            <div class="mt-1" onclick="event.stopPropagation();">
-                                <select class="form-select form-select-sm loc-select"
-                                        style="font-size:0.7rem;padding:1px 18px 1px 4px;height:auto;<?= $cur_loc ? 'background-color:'.h($cur_loc['color']).';color:#fff;' : '' ?>"
-                                        data-revision-id="<?= $revision_id ?>"
-                                        data-employee-id="<?= $eid ?>"
-                                        data-date="<?= h($wd) ?>"
-                                        data-pref="<?= h(implode(',', $emp_loc_pref_map[$eid] ?? [])) ?>">
-                                    <option value="">— Ort —</option>
-                                    <?php foreach ($locations as $loc):
-                                        $is_pref = in_array((int)$loc['id'], $emp_loc_pref_map[$eid] ?? [], true);
-                                    ?>
-                                        <option value="<?= (int)$loc['id'] ?>"
-                                                data-color="<?= h($loc['color']) ?>"
-                                                <?= $cur_loc && (int)$cur_loc['id'] === (int)$loc['id'] ? 'selected' : '' ?>>
-                                            <?= $is_pref ? '★ ' : '' ?><?= h($loc['name']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <?php elseif ($cur_loc): ?>
-                            <div class="mt-1">
-                                <span class="badge" style="background:<?= h($cur_loc['color']) ?>;font-size:0.65rem;">
-                                    <?= h($cur_loc['name']) ?>
+
+                        <?php if (!empty($day_shifts)): ?>
+                        <div class="mt-1 d-flex flex-wrap gap-1 justify-content-center">
+                            <?php foreach ($day_shifts as $sh): ?>
+                                <span class="badge" style="background:<?= h($sh['color']) ?>;font-size:0.62rem;">
+                                    <?= h($sh['short_name']) ?> <?= h(substr($sh['time_start'],0,5)) ?>–<?= h(substr($sh['time_end'],0,5)) ?>
                                 </span>
-                            </div>
-                            <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if (!empty($day_segs)): ?>
+                        <div class="mt-1 d-flex flex-wrap gap-1 justify-content-center">
+                            <?php foreach ($day_segs as $seg): ?>
+                                <span class="badge" style="background:<?= h($seg['location_color']) ?>;font-size:0.62rem;">
+                                    <i class="bi bi-geo-alt-fill"></i> <?= h($seg['location_name']) ?>
+                                    <?= h(substr($seg['time_start'],0,5)) ?>–<?= h(substr($seg['time_end'],0,5)) ?>
+                                </span>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if ($can_edit && !empty($locations)): ?>
+                        <div class="mt-1" onclick="event.stopPropagation();">
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" style="font-size:0.62rem;"
+                                    data-bs-toggle="modal" data-bs-target="#locSegModal"
+                                    data-employee-id="<?= $eid ?>"
+                                    data-employee-name="<?= h($name) ?>"
+                                    data-date="<?= h($wd) ?>"
+                                    data-date-label="<?= h($de_days[$di] . ' ' . format_date_de($wd)) ?>"
+                                    data-segments='<?= h(json_encode(array_map(fn($s) => [
+                                        'id'               => (int)$s['id'],
+                                        'location_name'    => $s['location_name'],
+                                        'location_color'   => $s['location_color'],
+                                        'shift_short_name' => $s['shift_short_name'],
+                                        'time_start'       => substr($s['time_start'], 0, 5),
+                                        'time_end'         => substr($s['time_end'], 0, 5),
+                                    ], $day_segs))) ?>'>
+                                <i class="bi bi-geo-alt"></i> Orte
+                            </button>
+                        </div>
                         <?php endif; ?>
                     </td>
 
@@ -443,6 +517,74 @@ require __DIR__ . '/templates/header.php';
 <div class="mt-2 text-muted small">
     <i class="bi bi-pencil-square"></i> Zelle anklicken, um Stunden direkt zu bearbeiten.
 </div>
+
+<!-- Location/time segment management modal -->
+<div class="modal fade" id="locSegModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header" style="background:var(--pb-dark);color:var(--pb-light);">
+                <h5 class="modal-title">
+                    <i class="bi bi-geo-alt-fill"></i> Orte zuteilen
+                    &mdash; <span id="locSegEmpName"></span>, <span id="locSegDateLabel"></span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="locSegList" class="mb-3"></div>
+                <hr>
+                <form method="post" action="planung_view.php" id="locSegAddForm" class="row g-2">
+                    <?= csrf_input() ?>
+                    <input type="hidden" name="action" value="add_location_segment">
+                    <input type="hidden" name="schedule_id" value="<?= $schedule_id ?>">
+                    <input type="hidden" name="revision_id" value="<?= $revision_id ?>">
+                    <input type="hidden" name="employee_id" id="locSegEmployeeId" value="">
+                    <input type="hidden" name="entry_date" id="locSegEntryDate" value="">
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Schicht (optional)</label>
+                        <select name="shift_id" id="locSegShift" class="form-select form-select-sm">
+                            <option value="">— keine —</option>
+                            <?php foreach ($all_shifts as $sh): ?>
+                                <option value="<?= (int)$sh['id'] ?>"
+                                        data-start="<?= h(substr($sh['time_start'], 0, 5)) ?>"
+                                        data-end="<?= h(substr($sh['time_end'], 0, 5)) ?>">
+                                    <?= h($sh['name']) ?> (<?= h(substr($sh['time_start'], 0, 5)) ?>–<?= h(substr($sh['time_end'], 0, 5)) ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Von</label>
+                        <input type="time" name="time_start" id="locSegTimeStart" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Bis</label>
+                        <input type="time" name="time_end" id="locSegTimeEnd" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Ort</label>
+                        <select name="location_id" id="locSegLocation" class="form-select form-select-sm" required>
+                            <option value="">— bitte wählen —</option>
+                            <?php foreach ($locations as $loc): ?>
+                                <option value="<?= (int)$loc['id'] ?>"><?= h($loc['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-12 text-end">
+                        <button type="submit" class="btn btn-sm btn-pb-primary"><i class="bi bi-plus-circle"></i> Hinzufügen</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<form method="post" action="planung_view.php" id="locSegDeleteForm" class="d-none">
+    <?= csrf_input() ?>
+    <input type="hidden" name="action" value="delete_location_segment">
+    <input type="hidden" name="schedule_id" value="<?= $schedule_id ?>">
+    <input type="hidden" name="revision_id" value="<?= $revision_id ?>">
+    <input type="hidden" name="segment_id" id="locSegDeleteId" value="">
+</form>
 <?php endif; ?>
 
 <?php require __DIR__ . '/templates/footer.php'; ?>
