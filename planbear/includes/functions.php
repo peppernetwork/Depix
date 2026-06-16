@@ -202,3 +202,17 @@ function get_slot_shift(PDO $pdo, string $slot): ?array {
     $row = $stmt->fetch();
     return $row ?: null;
 }
+
+/**
+ * Lazily add `request_group_id` to `employee_vacations` (so already-installed
+ * systems pick up the per-period vacation approval feature without a manual
+ * migration). All dates inserted from a single "Urlaub eintragen" submission
+ * share one request_group_id, allowing them to be approved/deleted together.
+ */
+function ensure_vacation_request_group_column(PDO $pdo): void {
+    $col = $pdo->query("SHOW COLUMNS FROM employee_vacations LIKE 'request_group_id'")->fetch();
+    if (!$col) {
+        $pdo->exec('ALTER TABLE employee_vacations ADD COLUMN request_group_id INT DEFAULT NULL');
+        $pdo->exec('ALTER TABLE employee_vacations ADD KEY idx_request_group (request_group_id)');
+    }
+}

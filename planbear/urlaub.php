@@ -14,6 +14,7 @@ require_auth();
 
 $pdo  = get_pdo();
 $user = current_user();
+ensure_vacation_request_group_column($pdo);
 
 // ─── Load school years ─────────────────────────────────────────────────────
 $school_years = $pdo->query('SELECT * FROM school_years ORDER BY start_date DESC')->fetchAll();
@@ -69,19 +70,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && has_role('editor','admin')) {
 
             $inserted = 0;
             $skipped  = 0;
+            $group_id = null;
+            // All days from one "Urlaub eintragen" submission share a request_group_id,
+            // so the whole period can be approved/deleted in one action.
             $stmt = $pdo->prepare(
                 'INSERT IGNORE INTO employee_vacations
-                 (employee_id, school_year_id, vacation_date, notes, created_by)
-                 VALUES (?,?,?,?,?)'
+                 (employee_id, school_year_id, vacation_date, notes, created_by, request_group_id)
+                 VALUES (?,?,?,?,?,?)'
             );
             $cur = clone $dt_from;
             while ($cur <= $dt_to) {
                 $dow = (int)$cur->format('N'); // 1=Mon..7=Sun
                 $ds  = $cur->format('Y-m-d');
                 if ($dow <= 5 && !isset($holiday_dates[$ds])) {
-                    $stmt->execute([$emp_id_post, $sel_sy_id, $ds, $notes ?: null, (int)$user['id']]);
-                    if ($pdo->lastInsertId()) $inserted++;
-                    else $skipped++;
+                    $stmt->execute([$emp_id_post, $sel_sy_id, $ds, $notes ?: null, (int)$user['id'], $group_id]);
+                    $new_id = $pdo->lastInsertId();
+                    if ($new_id) {
+                        $inserted++;
+                        if ($group_id === null) {
+                            $group_id = (int)$new_id;
+                            $pdo->prepare('UPDATE employee_vacations SET request_group_id=? WHERE id=?')
+                                ->execute([$group_id, $group_id]);
+                        }
+                    } else {
+                        $skipped++;
+                    }
                 }
                 $cur->modify('+1 day');
             }
@@ -90,22 +103,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && has_role('editor','admin')) {
         redirect('urlaub.php?schuljahr=' . $sel_sy_id);
     }
 
+    // Status change / delete act on a whole vacation period (request_group) at once.
     if ($action === 'set_status') {
-        $vac_id    = req_int('id', $_POST);
+        $vac_ids   = array_map('intval', array_filter((array)($_POST['ids'] ?? []), 'is_numeric'));
+        $emp_id_p  = req_int('emp_id', $_POST);
         $newstatus = $_POST['status'] ?? '';
-        if ($vac_id && in_array($newstatus, ['geplant','genehmigt','genommen'], true)) {
-            $pdo->prepare('UPDATE employee_vacations SET status=? WHERE id=?')
-                ->execute([$newstatus, $vac_id]);
-            flash('success', 'Status aktualisiert.');
+        if (!empty($vac_ids) && $emp_id_p && in_array($newstatus, ['geplant','genehmigt','genommen'], true)) {
+            $placeholders = implode(',', array_fill(0, count($vac_ids), '?'));
+            $pdo->prepare("UPDATE employee_vacations SET status=? WHERE employee_id=? AND id IN ($placeholders)")
+                ->execute(array_merge([$newstatus, $emp_id_p], $vac_ids));
+            flash('success', 'Status für ' . count($vac_ids) . ' Tag(e) aktualisiert.');
         }
         redirect('urlaub.php?schuljahr=' . $sel_sy_id . '&ma=' . ($_POST['emp_id'] ?? ''));
     }
 
     if ($action === 'delete') {
-        $vac_id = req_int('id', $_POST);
-        if ($vac_id) {
-            $pdo->prepare('DELETE FROM employee_vacations WHERE id=?')->execute([$vac_id]);
-            flash('success', 'Urlaubstag gelöscht.');
+        $vac_ids  = array_map('intval', array_filter((array)($_POST['ids'] ?? []), 'is_numeric'));
+        $emp_id_p = req_int('emp_id', $_POST);
+        if (!empty($vac_ids) && $emp_id_p) {
+            $placeholders = implode(',', array_fill(0, count($vac_ids), '?'));
+            $pdo->prepare("DELETE FROM employee_vacations WHERE employee_id=? AND id IN ($placeholders)")
+                ->execute(array_merge([$emp_id_p], $vac_ids));
+            flash('success', count($vac_ids) . ' Urlaubstag(e) gelöscht.');
         }
         redirect('urlaub.php?schuljahr=' . $sel_sy_id . '&ma=' . ($_POST['emp_id'] ?? ''));
     }
@@ -173,6 +192,30 @@ if ($sel_emp_id && $sel_sy_id) {
     $stmt->execute([$sel_emp_id, $sel_sy_id]);
     $vac_entries = $stmt->fetchAll();
 }
+
+// ─── Group vacation entries by request (period) ────────────────────────────
+// Entries created together (one "Urlaub eintragen" submission) share a
+// request_group_id, so an entire period is shown — and approved/deleted — as one.
+$vac_groups = [];
+foreach ($vac_entries as $ve) {
+    $gid = $ve['request_group_id'] !== null ? (int)$ve['request_group_id'] : (int)$ve['id'];
+    if (!isset($vac_groups[$gid])) {
+        $vac_groups[$gid] = ['entries' => []];
+    }
+    $vac_groups[$gid]['entries'][] = $ve;
+}
+foreach ($vac_groups as &$grp) {
+    usort($grp['entries'], fn($a, $b) => strcmp($a['vacation_date'], $b['vacation_date']));
+    $statuses = array_unique(array_column($grp['entries'], 'status'));
+    $grp['ids']          = array_map(fn($e) => (int)$e['id'], $grp['entries']);
+    $grp['date_from']    = $grp['entries'][0]['vacation_date'];
+    $grp['date_to']      = $grp['entries'][count($grp['entries']) - 1]['vacation_date'];
+    $grp['count']        = count($grp['entries']);
+    $grp['notes']        = $grp['entries'][0]['notes'] ?? '';
+    $grp['uniform_status'] = count($statuses) === 1 ? $statuses[0] : null;
+}
+unset($grp);
+usort($vac_groups, fn($a, $b) => strcmp($a['date_from'], $b['date_from']));
 
 $status_labels = ['geplant'=>'Geplant','genehmigt'=>'Genehmigt','genommen'=>'Genommen'];
 $status_colors = ['geplant'=>'secondary','genehmigt'=>'primary','genommen'=>'success'];
@@ -291,19 +334,19 @@ require __DIR__ . '/templates/header.php';
                     Urlaubstage &mdash; <strong><?= h($sel_emp['name']) ?></strong>
                 </span>
                 <span class="badge bg-secondary">
-                    <?= count($vac_entries) ?> Einträge
+                    <?= count($vac_groups) ?> Zeiträume / <?= count($vac_entries) ?> Tage
                 </span>
             </div>
             <div class="card-body p-0">
-                <?php if (empty($vac_entries)): ?>
+                <?php if (empty($vac_groups)): ?>
                     <div class="p-4 text-muted">Noch keine Urlaubstage eingetragen.</div>
                 <?php else: ?>
                 <div class="table-responsive">
                     <table class="table table-pb table-sm mb-0 align-middle">
                         <thead>
                             <tr>
-                                <th>Datum</th>
-                                <th>Wochentag</th>
+                                <th>Zeitraum</th>
+                                <th class="text-center">Tage</th>
                                 <th>Status</th>
                                 <th>Notiz</th>
                                 <th class="text-end">Aktionen</th>
@@ -311,36 +354,50 @@ require __DIR__ . '/templates/header.php';
                         </thead>
                         <tbody>
                         <?php
-                        $dow_names = ['', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-                        foreach ($vac_entries as $ve):
-                            $dow = (int)(new DateTime($ve['vacation_date']))->format('N');
+                        $next_statuses = [
+                            'geplant'    => ['genehmigt','genommen'],
+                            'genehmigt'  => ['genommen','geplant'],
+                            'genommen'   => ['geplant'],
+                        ];
+                        foreach ($vac_groups as $grp):
                         ?>
                         <tr>
                             <td class="fw-semibold text-nowrap">
-                                <?= h(date('d.m.Y', strtotime($ve['vacation_date']))) ?>
+                                <?= h(date('d.m.Y', strtotime($grp['date_from']))) ?>
+                                <?php if ($grp['date_to'] !== $grp['date_from']): ?>
+                                    &ndash; <?= h(date('d.m.Y', strtotime($grp['date_to']))) ?>
+                                <?php endif; ?>
                             </td>
-                            <td class="text-muted small"><?= $dow_names[$dow] ?? '' ?></td>
+                            <td class="text-center"><?= $grp['count'] ?></td>
                             <td>
-                                <span class="badge bg-<?= $status_colors[$ve['status']] ?? 'secondary' ?>">
-                                    <?= h($status_labels[$ve['status']] ?? $ve['status']) ?>
-                                </span>
+                                <?php if ($grp['uniform_status'] !== null): ?>
+                                    <span class="badge bg-<?= $status_colors[$grp['uniform_status']] ?? 'secondary' ?>">
+                                        <?= h($status_labels[$grp['uniform_status']] ?? $grp['uniform_status']) ?>
+                                    </span>
+                                <?php else: ?>
+                                    <?php foreach (array_count_values(array_column($grp['entries'], 'status')) as $st => $cnt): ?>
+                                        <span class="badge bg-<?= $status_colors[$st] ?? 'secondary' ?> me-1">
+                                            <?= h($status_labels[$st] ?? $st) ?> (<?= $cnt ?>)
+                                        </span>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
                             </td>
-                            <td class="small text-muted"><?= h($ve['notes'] ?? '') ?></td>
+                            <td class="small text-muted"><?= h($grp['notes']) ?></td>
                             <td class="text-end text-nowrap">
                                 <?php if (has_role('editor','admin')): ?>
-                                <!-- Status change -->
+                                <!-- Status change for the whole period -->
                                 <form method="post" class="d-inline">
                                     <?= csrf_input() ?>
-                                    <input type="hidden" name="action"     value="set_status">
-                                    <input type="hidden" name="id"         value="<?= (int)$ve['id'] ?>">
-                                    <input type="hidden" name="emp_id"     value="<?= $sel_emp_id ?>">
+                                    <input type="hidden" name="action" value="set_status">
+                                    <input type="hidden" name="emp_id" value="<?= $sel_emp_id ?>">
+                                    <?php foreach ($grp['ids'] as $gid): ?>
+                                        <input type="hidden" name="ids[]" value="<?= $gid ?>">
+                                    <?php endforeach; ?>
                                     <?php
-                                    $next_statuses = [
-                                        'geplant'    => ['genehmigt','genommen'],
-                                        'genehmigt'  => ['genommen','geplant'],
-                                        'genommen'   => ['geplant'],
-                                    ];
-                                    foreach ($next_statuses[$ve['status']] ?? [] as $ns):
+                                    $opts = $grp['uniform_status'] !== null
+                                        ? ($next_statuses[$grp['uniform_status']] ?? [])
+                                        : ['geplant','genehmigt','genommen'];
+                                    foreach ($opts as $ns):
                                     ?>
                                     <button type="submit" name="status" value="<?= $ns ?>"
                                             class="btn btn-sm btn-outline-<?= $status_colors[$ns] ?? 'secondary' ?> me-1">
@@ -348,14 +405,16 @@ require __DIR__ . '/templates/header.php';
                                     </button>
                                     <?php endforeach; ?>
                                 </form>
-                                <!-- Delete -->
+                                <!-- Delete the whole period -->
                                 <form method="post" class="d-inline">
                                     <?= csrf_input() ?>
                                     <input type="hidden" name="action" value="delete">
-                                    <input type="hidden" name="id"     value="<?= (int)$ve['id'] ?>">
                                     <input type="hidden" name="emp_id" value="<?= $sel_emp_id ?>">
+                                    <?php foreach ($grp['ids'] as $gid): ?>
+                                        <input type="hidden" name="ids[]" value="<?= $gid ?>">
+                                    <?php endforeach; ?>
                                     <button type="submit" class="btn btn-sm btn-outline-danger"
-                                            data-confirm="Urlaubstag <?= h(date('d.m.Y', strtotime($ve['vacation_date']))) ?> wirklich löschen?">
+                                            data-confirm="Zeitraum <?= h(date('d.m.Y', strtotime($grp['date_from']))) ?><?= $grp['date_to'] !== $grp['date_from'] ? ' – ' . h(date('d.m.Y', strtotime($grp['date_to']))) : '' ?> (<?= $grp['count'] ?> Tag(e)) wirklich löschen?">
                                         <i class="bi bi-trash3"></i>
                                     </button>
                                 </form>

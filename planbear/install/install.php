@@ -180,10 +180,12 @@ CREATE TABLE IF NOT EXISTS employee_vacations (
     notes VARCHAR(255),
     created_by INT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    request_group_id INT DEFAULT NULL,
     FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
     FOREIGN KEY (school_year_id) REFERENCES school_years(id) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-    UNIQUE KEY unique_emp_date (employee_id, vacation_date)
+    UNIQUE KEY unique_emp_date (employee_id, vacation_date),
+    KEY idx_request_group (request_group_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS settings (
