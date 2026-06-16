@@ -26,8 +26,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'einrichtung_adresse',
         'einrichtung_telefon',
         'einrichtung_email',
+        'fruehdienst_start',
+        'fruehdienst_end',
         'betreuungszeit_start',
         'betreuungszeit_end',
+        'spaetdienst_start',
+        'spaetdienst_end',
         'ferien_standard_arbeit',
         'planung_notiz',
         'pause_dauer_minuten',
@@ -37,17 +41,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $errors = [];
 
-    // Validate time format
-    $bz_start = trim($_POST['betreuungszeit_start'] ?? '');
-    $bz_end   = trim($_POST['betreuungszeit_end']   ?? '');
-    if (!preg_match('/^\d{2}:\d{2}$/', $bz_start)) {
-        $errors[] = 'Betreuungszeit Beginn muss im Format HH:MM sein.';
+    // Validate time format for all three blocks
+    $zeiten = [
+        'fruehdienst_start'    => 'Frühdienst Beginn',
+        'fruehdienst_end'      => 'Frühdienst Ende',
+        'betreuungszeit_start' => 'Kernarbeitszeit Beginn',
+        'betreuungszeit_end'   => 'Kernarbeitszeit Ende',
+        'spaetdienst_start'    => 'Spätdienst Beginn',
+        'spaetdienst_end'      => 'Spätdienst Ende',
+    ];
+    $zv = [];
+    foreach ($zeiten as $key => $label) {
+        $zv[$key] = trim($_POST[$key] ?? '');
+        if (!preg_match('/^\d{2}:\d{2}$/', $zv[$key])) {
+            $errors[] = $label . ' muss im Format HH:MM sein.';
+        }
     }
-    if (!preg_match('/^\d{2}:\d{2}$/', $bz_end)) {
-        $errors[] = 'Betreuungszeit Ende muss im Format HH:MM sein.';
-    }
-    if (empty($errors) && $bz_start >= $bz_end) {
-        $errors[] = 'Betreuungszeit Beginn muss vor dem Ende liegen.';
+    if (empty($errors)) {
+        if ($zv['fruehdienst_start'] >= $zv['fruehdienst_end']) {
+            $errors[] = 'Frühdienst Beginn muss vor dem Ende liegen.';
+        }
+        if ($zv['betreuungszeit_start'] >= $zv['betreuungszeit_end']) {
+            $errors[] = 'Kernarbeitszeit Beginn muss vor dem Ende liegen.';
+        }
+        if ($zv['spaetdienst_start'] >= $zv['spaetdienst_end']) {
+            $errors[] = 'Spätdienst Beginn muss vor dem Ende liegen.';
+        }
     }
     // Validate numeric fields
     $pause_min = (int)($_POST['pause_dauer_minuten'] ?? 30);
@@ -140,26 +159,39 @@ require __DIR__ . '/templates/header.php';
         </div>
         <div class="card-body">
             <p class="text-muted small mb-3">
-                Diese Zeiten gelten als <strong>Standard</strong> für alle Mitarbeiter im Modus „Voll".
-                Mitarbeiter mit individuellen Zeiten überschreiben diese Werte.
+                Frühdienst, Kernarbeitszeit und Spätdienst bilden zusammen die <strong>Gesamtzeit</strong> der Betreuung.
+                Diese Zeiten gelten als Standard für Mitarbeiter im Modus „Voll" (sofern keine Schichten zugewiesen sind).
+                Mitarbeiter mit individuellen Zeiten oder Schichten überschreiben diese Werte.
             </p>
-            <div class="d-flex align-items-end gap-4 flex-wrap">
+
+            <?php
+                $zeit_bloecke = [
+                    ['key' => 'fruehdienst',    'label' => 'Frühdienst',      'icon' => 'bi-sunrise-fill'],
+                    ['key' => 'betreuungszeit', 'label' => 'Kernarbeitszeit', 'icon' => 'bi-sun-fill'],
+                    ['key' => 'spaetdienst',    'label' => 'Spätdienst',      'icon' => 'bi-sunset-fill'],
+                ];
+            ?>
+            <?php foreach ($zeit_bloecke as $zb): ?>
+            <div class="d-flex align-items-end gap-4 flex-wrap mb-3 pb-3 border-bottom">
+                <div style="min-width:160px;">
+                    <span class="fw-semibold"><i class="bi <?= $zb['icon'] ?>"></i> <?= h($zb['label']) ?></span>
+                </div>
                 <div>
-                    <label class="form-label fw-semibold">Beginn</label>
-                    <input type="time" class="form-control" name="betreuungszeit_start"
-                           id="bz_start" value="<?= h($s['betreuungszeit_start']) ?>">
+                    <label class="form-label small mb-1">Beginn</label>
+                    <input type="time" class="form-control zb-start" name="<?= $zb['key'] ?>_start"
+                           id="<?= $zb['key'] ?>_start" value="<?= h($s[$zb['key'] . '_start']) ?>">
                 </div>
                 <div class="pb-1 text-muted fw-bold fs-5">–</div>
                 <div>
-                    <label class="form-label fw-semibold">Ende</label>
-                    <input type="time" class="form-control" name="betreuungszeit_end"
-                           id="bz_end" value="<?= h($s['betreuungszeit_end']) ?>">
+                    <label class="form-label small mb-1">Ende</label>
+                    <input type="time" class="form-control zb-end" name="<?= $zb['key'] ?>_end"
+                           id="<?= $zb['key'] ?>_end" value="<?= h($s[$zb['key'] . '_end']) ?>">
                 </div>
                 <div class="pb-1">
-                    <span class="badge bg-secondary fs-6" id="bz-duration">
+                    <span class="badge bg-secondary fs-6" id="<?= $zb['key'] ?>-duration">
                         <?php
-                            [$sh, $sm] = array_map('intval', explode(':', $s['betreuungszeit_start']));
-                            [$eh, $em] = array_map('intval', explode(':', $s['betreuungszeit_end']));
+                            [$sh, $sm] = array_map('intval', explode(':', $s[$zb['key'] . '_start']));
+                            [$eh, $em] = array_map('intval', explode(':', $s[$zb['key'] . '_end']));
                             $mins = ($eh * 60 + $em) - ($sh * 60 + $sm);
                             if ($mins > 0) {
                                 $hh = intdiv($mins, 60);
@@ -171,6 +203,25 @@ require __DIR__ . '/templates/header.php';
                         ?>
                     </span>
                 </div>
+            </div>
+            <?php endforeach; ?>
+
+            <div class="d-flex align-items-center gap-3">
+                <span class="fw-bold">Gesamtzeit:</span>
+                <span class="badge bg-pb fs-6" id="gesamtzeit-duration" style="background-color:var(--pb-medium);">
+                    <?php
+                        [$sh, $sm] = array_map('intval', explode(':', $s['fruehdienst_start']));
+                        [$eh, $em] = array_map('intval', explode(':', $s['spaetdienst_end']));
+                        $total_mins = ($eh * 60 + $em) - ($sh * 60 + $sm);
+                        if ($total_mins > 0) {
+                            $hh = intdiv($total_mins, 60);
+                            $mm = $total_mins % 60;
+                            echo h($s['fruehdienst_start'] . ' – ' . $s['spaetdienst_end'] . '  (' . ($hh > 0 ? $hh . ' h ' : '') . ($mm > 0 ? $mm . ' min' : '') . ')');
+                        } else {
+                            echo '—';
+                        }
+                    ?>
+                </span>
             </div>
         </div>
     </div>
@@ -267,21 +318,47 @@ require __DIR__ . '/templates/header.php';
 
 <script>
 (function () {
-    const s = document.getElementById('bz_start');
-    const e = document.getElementById('bz_end');
-    const d = document.getElementById('bz-duration');
-    function update() {
-        if (!s.value || !e.value) { d.textContent = '—'; return; }
-        const [sh, sm] = s.value.split(':').map(Number);
-        const [eh, em] = e.value.split(':').map(Number);
-        const mins = (eh * 60 + em) - (sh * 60 + sm);
+    const blocks = ['fruehdienst', 'betreuungszeit', 'spaetdienst'];
+    const gesamt = document.getElementById('gesamtzeit-duration');
+
+    function toMins(val) {
+        if (!val) return null;
+        const [h, m] = val.split(':').map(Number);
+        return h * 60 + m;
+    }
+
+    function updateBlock(key) {
+        const s = document.getElementById(key + '_start');
+        const e = document.getElementById(key + '_end');
+        const d = document.getElementById(key + '-duration');
+        const sm = toMins(s.value), em = toMins(e.value);
+        if (sm === null || em === null) { d.textContent = '—'; return; }
+        const mins = em - sm;
         if (mins <= 0) { d.textContent = '!'; d.className = 'badge bg-danger fs-6'; return; }
         const hh = Math.floor(mins / 60), mm = mins % 60;
         d.textContent = (hh > 0 ? hh + ' h ' : '') + (mm > 0 ? mm + ' min' : '');
         d.className = 'badge bg-secondary fs-6';
     }
-    s?.addEventListener('change', update);
-    e?.addEventListener('change', update);
+
+    function updateGesamt() {
+        const fdStart = document.getElementById('fruehdienst_start').value;
+        const sdEnd   = document.getElementById('spaetdienst_end').value;
+        const sm = toMins(fdStart), em = toMins(sdEnd);
+        if (sm === null || em === null || em <= sm) { gesamt.textContent = '—'; return; }
+        const mins = em - sm;
+        const hh = Math.floor(mins / 60), mm = mins % 60;
+        gesamt.textContent = fdStart + ' – ' + sdEnd + '  (' + (hh > 0 ? hh + ' h ' : '') + (mm > 0 ? mm + ' min' : '') + ')';
+    }
+
+    function updateAll() {
+        blocks.forEach(updateBlock);
+        updateGesamt();
+    }
+
+    blocks.forEach(key => {
+        document.getElementById(key + '_start')?.addEventListener('change', updateAll);
+        document.getElementById(key + '_end')?.addEventListener('change', updateAll);
+    });
 })();
 </script>
 

@@ -42,8 +42,10 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
     }
 
     // --- Global settings ---
-    $bz_start        = get_setting($pdo, 'betreuungszeit_start',  '12:00');
-    $bz_end          = get_setting($pdo, 'betreuungszeit_end',    '15:30');
+    // 'full' time mode spans the entire care window: Frühdienst-Start bis Spätdienst-Ende
+    // (Frühdienst + Kernarbeitszeit + Spätdienst = Gesamtzeit).
+    $bz_start        = get_setting($pdo, 'fruehdienst_start', get_setting($pdo, 'betreuungszeit_start', '12:00'));
+    $bz_end          = get_setting($pdo, 'spaetdienst_end',   get_setting($pdo, 'betreuungszeit_end',   '15:30'));
     $sys_pause_min   = (int)get_setting($pdo, 'pause_dauer_minuten', '30');
     $sys_pause_ab    = (float)get_setting($pdo, 'pause_ab_stunden',  '6');
 
