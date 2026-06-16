@@ -14,6 +14,15 @@ require_auth(['admin']); // Only admins may change system settings
 
 $pdo = get_pdo();
 ensure_vacation_week_table($pdo);
+ensure_shift_slot_column($pdo);
+
+// ─── Betreuungszeiten now come from Schichten (Frühdienst/Kernarbeitszeit/
+// Spätdienst role assignment in schichten.php) instead of manual entry here ───
+$slot_labels = shift_slot_labels();
+$slot_shifts = [];
+foreach ($slot_labels as $skey => $slabel) {
+    $slot_shifts[$skey] = get_slot_shift($pdo, $skey);
+}
 
 // ─── Load active school year + vacation periods with per-week breakdown ───
 $active_sy   = $pdo->query("SELECT * FROM school_years WHERE is_active=1 LIMIT 1")->fetch();
@@ -46,12 +55,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'einrichtung_adresse',
         'einrichtung_telefon',
         'einrichtung_email',
-        'fruehdienst_start',
-        'fruehdienst_end',
-        'betreuungszeit_start',
-        'betreuungszeit_end',
-        'spaetdienst_start',
-        'spaetdienst_end',
         'planung_notiz',
         'pause_dauer_minuten',
         'pause_ab_stunden',
@@ -60,33 +63,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $errors = [];
 
-    // Validate time format for all three blocks
-    $zeiten = [
-        'fruehdienst_start'    => 'Frühdienst Beginn',
-        'fruehdienst_end'      => 'Frühdienst Ende',
-        'betreuungszeit_start' => 'Kernarbeitszeit Beginn',
-        'betreuungszeit_end'   => 'Kernarbeitszeit Ende',
-        'spaetdienst_start'    => 'Spätdienst Beginn',
-        'spaetdienst_end'      => 'Spätdienst Ende',
-    ];
-    $zv = [];
-    foreach ($zeiten as $key => $label) {
-        $zv[$key] = trim($_POST[$key] ?? '');
-        if (!preg_match('/^\d{2}:\d{2}$/', $zv[$key])) {
-            $errors[] = $label . ' muss im Format HH:MM sein.';
-        }
-    }
-    if (empty($errors)) {
-        if ($zv['fruehdienst_start'] >= $zv['fruehdienst_end']) {
-            $errors[] = 'Frühdienst Beginn muss vor dem Ende liegen.';
-        }
-        if ($zv['betreuungszeit_start'] >= $zv['betreuungszeit_end']) {
-            $errors[] = 'Kernarbeitszeit Beginn muss vor dem Ende liegen.';
-        }
-        if ($zv['spaetdienst_start'] >= $zv['spaetdienst_end']) {
-            $errors[] = 'Spätdienst Beginn muss vor dem Ende liegen.';
-        }
-    }
     // Validate numeric fields
     $pause_min = (int)($_POST['pause_dauer_minuten'] ?? 30);
     $pause_ab  = (float)str_replace(',', '.', $_POST['pause_ab_stunden'] ?? '6');
@@ -177,70 +153,76 @@ require __DIR__ . '/templates/header.php';
     </div>
 
     <!-- ── Betreuungszeiten ─────────────────────────────────────────────── -->
+    <?php
+        $slot_icons = ['fruehdienst' => 'bi-sunrise-fill', 'betreuungszeit' => 'bi-sun-fill', 'spaetdienst' => 'bi-sunset-fill'];
+        function slot_duration_str(array $sh): string {
+            [$sh2, $sm2] = array_map('intval', explode(':', substr($sh['time_start'], 0, 5)));
+            [$eh2, $em2] = array_map('intval', explode(':', substr($sh['time_end'],   0, 5)));
+            $mins = ($eh2 * 60 + $em2) - ($sh2 * 60 + $sm2);
+            if ($mins <= 0) return '—';
+            $hh = intdiv($mins, 60);
+            $mm = $mins % 60;
+            return ($hh > 0 ? $hh . ' h ' : '') . ($mm > 0 ? $mm . ' min' : '');
+        }
+    ?>
     <div class="card pb-card mb-4" style="max-width:680px;">
-        <div class="card-header">
-            <i class="bi bi-clock-fill"></i> Betreuungszeiten
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-clock-fill"></i> Betreuungszeiten</span>
+            <a href="schichten.php" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-clock-history"></i> Schichten verwalten
+            </a>
         </div>
         <div class="card-body">
             <p class="text-muted small mb-3">
                 Frühdienst, Kernarbeitszeit und Spätdienst bilden zusammen die <strong>Gesamtzeit</strong> der Betreuung.
-                Diese Zeiten gelten als Standard für Mitarbeiter im Modus „Voll" (sofern keine Schichten zugewiesen sind).
-                Mitarbeiter mit individuellen Zeiten oder Schichten überschreiben diese Werte.
+                Die Zeiten werden über die jeweils zugewiesene <strong>Schicht</strong> (Rolle in
+                <a href="schichten.php">Schichten</a>) festgelegt und gelten als Standard für Mitarbeiter im
+                Modus „Voll" (sofern keine eigenen Schichten zugewiesen sind).
             </p>
 
-            <?php
-                $zeit_bloecke = [
-                    ['key' => 'fruehdienst',    'label' => 'Frühdienst',      'icon' => 'bi-sunrise-fill'],
-                    ['key' => 'betreuungszeit', 'label' => 'Kernarbeitszeit', 'icon' => 'bi-sun-fill'],
-                    ['key' => 'spaetdienst',    'label' => 'Spätdienst',      'icon' => 'bi-sunset-fill'],
-                ];
+            <?php foreach ($slot_labels as $skey => $slabel):
+                $sh = $slot_shifts[$skey];
             ?>
-            <?php foreach ($zeit_bloecke as $zb): ?>
-            <div class="d-flex align-items-end gap-4 flex-wrap mb-3 pb-3 border-bottom">
+            <div class="d-flex align-items-center gap-4 flex-wrap mb-3 pb-3 border-bottom">
                 <div style="min-width:160px;">
-                    <span class="fw-semibold"><i class="bi <?= $zb['icon'] ?>"></i> <?= h($zb['label']) ?></span>
+                    <span class="fw-semibold"><i class="bi <?= $slot_icons[$skey] ?>"></i> <?= h($slabel) ?></span>
                 </div>
-                <div>
-                    <label class="form-label small mb-1">Beginn</label>
-                    <input type="time" class="form-control zb-start" name="<?= $zb['key'] ?>_start"
-                           id="<?= $zb['key'] ?>_start" value="<?= h($s[$zb['key'] . '_start']) ?>">
-                </div>
-                <div class="pb-1 text-muted fw-bold fs-5">–</div>
-                <div>
-                    <label class="form-label small mb-1">Ende</label>
-                    <input type="time" class="form-control zb-end" name="<?= $zb['key'] ?>_end"
-                           id="<?= $zb['key'] ?>_end" value="<?= h($s[$zb['key'] . '_end']) ?>">
-                </div>
-                <div class="pb-1">
-                    <span class="badge bg-secondary fs-6" id="<?= $zb['key'] ?>-duration">
-                        <?php
-                            [$sh, $sm] = array_map('intval', explode(':', $s[$zb['key'] . '_start']));
-                            [$eh, $em] = array_map('intval', explode(':', $s[$zb['key'] . '_end']));
-                            $mins = ($eh * 60 + $em) - ($sh * 60 + $sm);
-                            if ($mins > 0) {
-                                $hh = intdiv($mins, 60);
-                                $mm = $mins % 60;
-                                echo h(($hh > 0 ? $hh . ' h ' : '') . ($mm > 0 ? $mm . ' min' : ''));
-                            } else {
-                                echo '—';
-                            }
-                        ?>
-                    </span>
-                </div>
+                <?php if ($sh): ?>
+                    <div class="text-nowrap">
+                        <?= h(substr($sh['time_start'], 0, 5)) ?> &ndash; <?= h(substr($sh['time_end'], 0, 5)) ?> Uhr
+                    </div>
+                    <div>
+                        <span class="badge bg-secondary fs-6"><?= h(slot_duration_str($sh)) ?></span>
+                    </div>
+                    <div class="text-muted small">via Schicht „<?= h($sh['name']) ?>"</div>
+                <?php else: ?>
+                    <div class="text-warning small">
+                        <i class="bi bi-exclamation-triangle-fill"></i> Keine Schicht zugewiesen
+                        &ndash; <a href="schichten.php">jetzt festlegen</a>
+                    </div>
+                <?php endif; ?>
             </div>
             <?php endforeach; ?>
 
             <div class="d-flex align-items-center gap-3">
                 <span class="fw-bold">Gesamtzeit:</span>
-                <span class="badge bg-pb fs-6" id="gesamtzeit-duration" style="background-color:var(--pb-medium);">
+                <span class="badge bg-pb fs-6" style="background-color:var(--pb-medium);">
                     <?php
-                        [$sh, $sm] = array_map('intval', explode(':', $s['fruehdienst_start']));
-                        [$eh, $em] = array_map('intval', explode(':', $s['spaetdienst_end']));
-                        $total_mins = ($eh * 60 + $em) - ($sh * 60 + $sm);
-                        if ($total_mins > 0) {
-                            $hh = intdiv($total_mins, 60);
-                            $mm = $total_mins % 60;
-                            echo h($s['fruehdienst_start'] . ' – ' . $s['spaetdienst_end'] . '  (' . ($hh > 0 ? $hh . ' h ' : '') . ($mm > 0 ? $mm . ' min' : '') . ')');
+                        $fd = $slot_shifts['fruehdienst'];
+                        $sd = $slot_shifts['spaetdienst'];
+                        if ($fd && $sd) {
+                            $fd_start = substr($fd['time_start'], 0, 5);
+                            $sd_end   = substr($sd['time_end'],   0, 5);
+                            [$sh3, $sm3] = array_map('intval', explode(':', $fd_start));
+                            [$eh3, $em3] = array_map('intval', explode(':', $sd_end));
+                            $total_mins = ($eh3 * 60 + $em3) - ($sh3 * 60 + $sm3);
+                            if ($total_mins > 0) {
+                                $hh = intdiv($total_mins, 60);
+                                $mm = $total_mins % 60;
+                                echo h($fd_start . ' – ' . $sd_end . '  (' . ($hh > 0 ? $hh . ' h ' : '') . ($mm > 0 ? $mm . ' min' : '') . ')');
+                            } else {
+                                echo '—';
+                            }
                         } else {
                             echo '—';
                         }
@@ -368,51 +350,5 @@ require __DIR__ . '/templates/header.php';
         </button>
     </div>
 </form>
-
-<script>
-(function () {
-    const blocks = ['fruehdienst', 'betreuungszeit', 'spaetdienst'];
-    const gesamt = document.getElementById('gesamtzeit-duration');
-
-    function toMins(val) {
-        if (!val) return null;
-        const [h, m] = val.split(':').map(Number);
-        return h * 60 + m;
-    }
-
-    function updateBlock(key) {
-        const s = document.getElementById(key + '_start');
-        const e = document.getElementById(key + '_end');
-        const d = document.getElementById(key + '-duration');
-        const sm = toMins(s.value), em = toMins(e.value);
-        if (sm === null || em === null) { d.textContent = '—'; return; }
-        const mins = em - sm;
-        if (mins <= 0) { d.textContent = '!'; d.className = 'badge bg-danger fs-6'; return; }
-        const hh = Math.floor(mins / 60), mm = mins % 60;
-        d.textContent = (hh > 0 ? hh + ' h ' : '') + (mm > 0 ? mm + ' min' : '');
-        d.className = 'badge bg-secondary fs-6';
-    }
-
-    function updateGesamt() {
-        const fdStart = document.getElementById('fruehdienst_start').value;
-        const sdEnd   = document.getElementById('spaetdienst_end').value;
-        const sm = toMins(fdStart), em = toMins(sdEnd);
-        if (sm === null || em === null || em <= sm) { gesamt.textContent = '—'; return; }
-        const mins = em - sm;
-        const hh = Math.floor(mins / 60), mm = mins % 60;
-        gesamt.textContent = fdStart + ' – ' + sdEnd + '  (' + (hh > 0 ? hh + ' h ' : '') + (mm > 0 ? mm + ' min' : '') + ')';
-    }
-
-    function updateAll() {
-        blocks.forEach(updateBlock);
-        updateGesamt();
-    }
-
-    blocks.forEach(key => {
-        document.getElementById(key + '_start')?.addEventListener('change', updateAll);
-        document.getElementById(key + '_end')?.addEventListener('change', updateAll);
-    });
-})();
-</script>
 
 <?php require __DIR__ . '/templates/footer.php'; ?>

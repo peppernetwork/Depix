@@ -44,9 +44,16 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
 
     // --- Global settings ---
     // 'full' time mode spans the entire care window: Frühdienst-Start bis Spätdienst-Ende
-    // (Frühdienst + Kernarbeitszeit + Spätdienst = Gesamtzeit).
-    $bz_start        = get_setting($pdo, 'fruehdienst_start', get_setting($pdo, 'betreuungszeit_start', '12:00'));
-    $bz_end          = get_setting($pdo, 'spaetdienst_end',   get_setting($pdo, 'betreuungszeit_end',   '15:30'));
+    // (Frühdienst + Kernarbeitszeit + Spätdienst = Gesamtzeit). The Frühdienst/Spätdienst
+    // shifts (assigned via Schichten → Rolle) are the source of truth; settings.fruehdienst_start
+    // etc. only remain as a fallback for systems where no shift has been assigned that role yet.
+    ensure_shift_slot_column($pdo);
+    $fd_shift        = get_slot_shift($pdo, 'fruehdienst');
+    $sd_shift        = get_slot_shift($pdo, 'spaetdienst');
+    $bz_start        = $fd_shift ? substr($fd_shift['time_start'], 0, 5)
+                                  : get_setting($pdo, 'fruehdienst_start', get_setting($pdo, 'betreuungszeit_start', '12:00'));
+    $bz_end          = $sd_shift ? substr($sd_shift['time_end'], 0, 5)
+                                  : get_setting($pdo, 'spaetdienst_end',   get_setting($pdo, 'betreuungszeit_end',   '15:30'));
     $sys_pause_min   = (int)get_setting($pdo, 'pause_dauer_minuten', '30');
     $sys_pause_ab    = (float)get_setting($pdo, 'pause_ab_stunden',  '6');
 

@@ -46,9 +46,11 @@ if ($is_edit && $emp_id) {
     $emp_shift_ids = array_column($stmt->fetchAll(), 'shift_id');
 }
 
-// Load global Betreuungszeit for placeholder
-$bz_start = get_setting($pdo, 'betreuungszeit_start', '12:00');
-$bz_end   = get_setting($pdo, 'betreuungszeit_end',   '15:30');
+// Load global Betreuungszeit for placeholder (Schichten → Rolle "Kernarbeitszeit" wins, if set)
+ensure_shift_slot_column($pdo);
+$bz_shift = get_slot_shift($pdo, 'betreuungszeit');
+$bz_start = $bz_shift ? substr($bz_shift['time_start'], 0, 5) : get_setting($pdo, 'betreuungszeit_start', '12:00');
+$bz_end   = $bz_shift ? substr($bz_shift['time_end'],   0, 5) : get_setting($pdo, 'betreuungszeit_end',   '15:30');
 
 $errors = [];
 $form   = [

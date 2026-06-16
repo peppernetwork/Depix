@@ -12,6 +12,8 @@ session_start_secure();
 require_auth(['editor','admin']);
 
 $pdo = get_pdo();
+ensure_shift_slot_column($pdo);
+$slot_labels = shift_slot_labels();
 
 // ─── POST actions ──────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -29,6 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $t_start    = trim($_POST['time_start'] ?? '');
         $t_end      = trim($_POST['time_end']   ?? '');
         $color      = trim($_POST['color']      ?? '#6c757d');
+        $slot       = trim($_POST['slot']       ?? '');
+        $slot       = isset($slot_labels[$slot]) ? $slot : null;
 
         $errors = [];
         if ($name === '')                             $errors[] = 'Name ist ein Pflichtfeld.';
@@ -42,6 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $max_order = (int)$pdo->query('SELECT COALESCE(MAX(sort_order),0) FROM shifts')->fetchColumn();
             $pdo->prepare('INSERT INTO shifts (name, short_name, time_start, time_end, color, sort_order) VALUES (?,?,?,?,?,?)')
                 ->execute([$name, $short_name, $t_start, $t_end, $color, $max_order + 1]);
+            if ($slot !== null) {
+                assign_shift_slot($pdo, (int)$pdo->lastInsertId(), $slot);
+            }
             flash('success', 'Schicht "' . $name . '" angelegt.');
         } else {
             foreach ($errors as $e) flash('error', $e);
@@ -57,6 +64,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $t_start = trim($_POST['time_start'] ?? '');
         $t_end   = trim($_POST['time_end']   ?? '');
         $color   = trim($_POST['color']      ?? '#6c757d');
+        $slot    = trim($_POST['slot']       ?? '');
+        $slot    = isset($slot_labels[$slot]) ? $slot : null;
 
         $errors = [];
         if (!$id)                                       $errors[] = 'Ungültige ID.';
@@ -69,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($errors)) {
             $pdo->prepare('UPDATE shifts SET name=?, short_name=?, time_start=?, time_end=?, color=? WHERE id=?')
                 ->execute([$name, $short, $t_start, $t_end, $color, $id]);
+            assign_shift_slot($pdo, $id, $slot);
             flash('success', "Schicht aktualisiert.");
         } else {
             foreach ($errors as $e) flash('error', $e);
@@ -134,6 +144,7 @@ require __DIR__ . '/templates/header.php';
                                 <th>Schicht</th>
                                 <th>Zeit</th>
                                 <th>Dauer</th>
+                                <th>Rolle</th>
                                 <th>MA</th>
                                 <?php if (has_role('editor','admin')): ?>
                                 <th class="text-end">Aktionen</th>
@@ -161,6 +172,13 @@ require __DIR__ . '/templates/header.php';
                             </td>
                             <td class="text-muted small"><?= h(trim($dur_str)) ?></td>
                             <td>
+                                <?php if ($sh['slot'] && isset($slot_labels[$sh['slot']])): ?>
+                                    <span class="badge bg-info-subtle text-info-emphasis"><?= h($slot_labels[$sh['slot']]) ?></span>
+                                <?php else: ?>
+                                    <span class="text-muted small">&ndash;</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
                                 <span class="badge bg-secondary"><?= (int)$sh['emp_count'] ?></span>
                             </td>
                             <?php if (has_role('editor','admin')): ?>
@@ -171,7 +189,8 @@ require __DIR__ . '/templates/header.php';
                                             '<?= h($sh['short_name']) ?>',
                                             '<?= h(substr($sh['time_start'],0,5)) ?>',
                                             '<?= h(substr($sh['time_end'],  0,5)) ?>',
-                                            '<?= h($sh['color']) ?>')">
+                                            '<?= h($sh['color']) ?>',
+                                            '<?= h((string)$sh['slot']) ?>')">
                                     <i class="bi bi-pencil-fill"></i>
                                 </button>
                                 <?php if (has_role('admin')): ?>
@@ -239,6 +258,19 @@ require __DIR__ . '/templates/header.php';
                             <span class="badge" id="sf-preview" style="background:#6c757d;">Vorschau</span>
                         </div>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Rolle für Betreuungszeiten</label>
+                        <select class="form-select form-select-sm" name="slot" id="sf-slot">
+                            <option value="">Keine besondere Rolle</option>
+                            <?php foreach ($slot_labels as $skey => $slabel): ?>
+                                <option value="<?= h($skey) ?>"><?= h($slabel) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="form-text">
+                            Legt fest, welche Schicht die globalen Betreuungszeiten in den
+                            Systemeinstellungen bestimmt. Pro Rolle nur eine Schicht möglich.
+                        </div>
+                    </div>
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-pb-primary btn-sm flex-grow-1" id="sf-submit">
                             <i class="bi bi-plus-lg"></i> Anlegen
@@ -258,7 +290,7 @@ require __DIR__ . '/templates/header.php';
 
 <!-- Edit modal via JavaScript — reuses the sidebar form -->
 <script>
-function openEditShift(id, name, short_name, t_start, t_end, color) {
+function openEditShift(id, name, short_name, t_start, t_end, color, slot) {
     document.getElementById('shift-action').value = 'update';
     document.getElementById('shift-id').value     = id;
     document.getElementById('sf-name').value      = name;
@@ -266,6 +298,7 @@ function openEditShift(id, name, short_name, t_start, t_end, color) {
     document.getElementById('sf-start').value     = t_start;
     document.getElementById('sf-end').value       = t_end;
     document.getElementById('sf-color').value     = color;
+    document.getElementById('sf-slot').value      = slot || '';
     document.getElementById('sf-preview').style.background = color;
     document.getElementById('sf-preview').textContent      = short_name || 'Vorschau';
     document.getElementById('shift-form-title').innerHTML  = '<i class="bi bi-pencil-fill"></i> Schicht bearbeiten';
@@ -282,6 +315,7 @@ function resetShiftForm() {
     document.getElementById('sf-start').value     = '';
     document.getElementById('sf-end').value       = '';
     document.getElementById('sf-color').value     = '#6c757d';
+    document.getElementById('sf-slot').value      = '';
     document.getElementById('sf-preview').style.background = '#6c757d';
     document.getElementById('sf-preview').textContent      = 'Vorschau';
     document.getElementById('shift-form-title').innerHTML  = '<i class="bi bi-plus-circle-fill"></i> Neue Schicht';

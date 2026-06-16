@@ -162,3 +162,43 @@ function sync_vacation_period_weeks(PDO $pdo, array $vacation_period): void {
         $stmt->execute([(int)$vacation_period['id'], $i + 1, $week['start'], $week['end']]);
     }
 }
+
+/** Valid shift "slot" roles that feed the global Betreuungszeiten in den Einstellungen. */
+function shift_slot_labels(): array {
+    return [
+        'fruehdienst'    => 'Frühdienst',
+        'betreuungszeit' => 'Kernarbeitszeit',
+        'spaetdienst'    => 'Spätdienst',
+    ];
+}
+
+/**
+ * Lazily add the `slot` column to `shifts` (so already-installed systems pick
+ * up the Schichten-as-source-of-truth feature without a manual migration).
+ */
+function ensure_shift_slot_column(PDO $pdo): void {
+    $col = $pdo->query("SHOW COLUMNS FROM shifts LIKE 'slot'")->fetch();
+    if (!$col) {
+        $pdo->exec('ALTER TABLE shifts ADD COLUMN slot VARCHAR(20) DEFAULT NULL');
+        $pdo->exec('ALTER TABLE shifts ADD UNIQUE KEY unique_slot (slot)');
+    }
+}
+
+/**
+ * Assign a shift to a slot role, releasing that role from any other shift
+ * first (a slot may only be held by one shift at a time; NULL clears it).
+ */
+function assign_shift_slot(PDO $pdo, int $shift_id, ?string $slot): void {
+    if ($slot !== null) {
+        $pdo->prepare('UPDATE shifts SET slot = NULL WHERE slot = ? AND id != ?')->execute([$slot, $shift_id]);
+    }
+    $pdo->prepare('UPDATE shifts SET slot = ? WHERE id = ?')->execute([$slot, $shift_id]);
+}
+
+/** Fetch the shift currently assigned to a slot role, or null if none. */
+function get_slot_shift(PDO $pdo, string $slot): ?array {
+    $stmt = $pdo->prepare('SELECT * FROM shifts WHERE slot = ? LIMIT 1');
+    $stmt->execute([$slot]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}

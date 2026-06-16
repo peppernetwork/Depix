@@ -190,7 +190,9 @@ CREATE TABLE IF NOT EXISTS shifts (
     time_start TIME NOT NULL,
     time_end TIME NOT NULL,
     color VARCHAR(7) NOT NULL DEFAULT '#6c757d',
-    sort_order INT NOT NULL DEFAULT 0
+    sort_order INT NOT NULL DEFAULT 0,
+    slot VARCHAR(20) DEFAULT NULL,
+    UNIQUE KEY unique_slot (slot)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS employee_shifts (
