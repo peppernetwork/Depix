@@ -20,7 +20,6 @@ ensure_employee_shift_times_table($pdo);
 $emp_id = req_int('id', $_GET);
 $is_edit = ($emp_id !== null);
 $emp     = null;
-$day_times_db = []; // per-day times for this employee
 
 if ($is_edit) {
     $stmt = $pdo->prepare('SELECT * FROM employees WHERE id = ?');
@@ -29,15 +28,6 @@ if ($is_edit) {
     if (!$emp) {
         flash('error', 'Mitarbeiter nicht gefunden.');
         redirect('mitarbeiter.php');
-    }
-    // Load per-day times
-    $stmt = $pdo->prepare('SELECT day_of_week, time_start, time_end FROM employee_day_times WHERE employee_id = ?');
-    $stmt->execute([$emp_id]);
-    foreach ($stmt->fetchAll() as $row) {
-        $day_times_db[(int)$row['day_of_week']] = [
-            'start' => substr($row['time_start'], 0, 5),
-            'end'   => substr($row['time_end'],   0, 5),
-        ];
     }
 }
 
@@ -72,9 +62,6 @@ $form   = [
     'max_weekly_hours'   => $is_edit && $emp['max_weekly_hours'] !== null ? (string)$emp['max_weekly_hours'] : '',
     'available_days'     => $is_edit ? explode(',', $emp['available_days']) : ['0','1','2','3','4'],
     'time_mode'          => $is_edit ? ($emp['time_mode'] ?? 'full') : 'full',
-    'week_time_start'    => $is_edit ? substr($emp['week_time_start'] ?? '', 0, 5) : $bz_start,
-    'week_time_end'      => $is_edit ? substr($emp['week_time_end']   ?? '', 0, 5) : $bz_end,
-    'day_times'          => $day_times_db,
     'shift_week_times'   => $emp_shift_times['week'],
     'shift_day_times'    => $emp_shift_times['day'],
     'pause_minuten'      => $is_edit ? $emp['pause_minuten']      : null,
@@ -96,23 +83,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $max_weekly_raw = trim($_POST['max_weekly_hours'] ?? '');
         $days           = $_POST['available_days'] ?? [];
         $time_mode      = $_POST['time_mode'] ?? 'full';
-        $wts            = trim($_POST['week_time_start'] ?? '');
-        $wte            = trim($_POST['week_time_end']   ?? '');
         // Pause: empty string → NULL (use system default)
         $pause_raw      = trim($_POST['pause_minuten'] ?? '');
         $pause_val      = ($pause_raw === '') ? null : (int)$pause_raw;
         // Urlaub
         $url_zusatz     = max(0, (int)($_POST['urlaub_zusatz_tage'] ?? 0));
-
-        // Collect per-day times from POST
-        $posted_day_times = [];
-        foreach (['0','1','2','3','4'] as $d) {
-            $ds = trim($_POST["day_time_start_{$d}"] ?? '');
-            $de = trim($_POST["day_time_end_{$d}"]   ?? '');
-            if ($ds !== '' && $de !== '') {
-                $posted_day_times[(int)$d] = ['start' => $ds, 'end' => $de];
-            }
-        }
 
         // Collect and validate selected shifts (needed up-front: the per-shift
         // time overrides below are only relevant/required for selected shifts).
@@ -162,14 +137,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($time_mode, ['full','week','day'], true)) {
             $time_mode = 'full';
         }
-        // Validate time ranges for 'week' mode
+        // Validate time ranges for 'week' mode: requires at least one selected
+        // shift, with a time entered per shift (no more generic fallback time).
         if ($time_mode === 'week') {
             if (empty($selected_shift_ids)) {
-                if (!preg_match('/^\d{2}:\d{2}$/', $wts) || !preg_match('/^\d{2}:\d{2}$/', $wte)) {
-                    $errors[] = 'Bitte gültige Zeiten für die Wochenzeit angeben (HH:MM).';
-                } elseif ($wts >= $wte) {
-                    $errors[] = 'Startzeit muss vor der Endzeit liegen.';
-                }
+                $errors[] = 'Für „Individuell (ganze Woche)" muss mindestens ein Dienst ausgewählt sein.';
             } else {
                 foreach ($selected_shift_ids as $sid) {
                     $sname = $shift_names[$sid] ?? "Dienst #{$sid}";
@@ -181,18 +153,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
-        // Validate per-day times for 'day' mode
+        // Validate per-day times for 'day' mode: same idea, per shift per weekday.
         if ($time_mode === 'day') {
             $day_names = ['Mo','Di','Mi','Do','Fr'];
             if (empty($selected_shift_ids)) {
-                foreach ($days as $d) {
-                    $di = (int)$d;
-                    if (!isset($posted_day_times[$di])) {
-                        $errors[] = 'Bitte Zeiten für ' . $day_names[$di] . ' angeben.';
-                    } elseif ($posted_day_times[$di]['start'] >= $posted_day_times[$di]['end']) {
-                        $errors[] = 'Startzeit muss vor Endzeit liegen (' . $day_names[$di] . ').';
-                    }
-                }
+                $errors[] = 'Für „Individuell (pro Tag)" muss mindestens ein Dienst ausgewählt sein.';
             } else {
                 foreach ($days as $d) {
                     $di = (int)$d;
@@ -214,9 +179,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'max_weekly_hours'   => $max_weekly_raw,
             'available_days'     => $days,
             'time_mode'          => $time_mode,
-            'week_time_start'    => $wts,
-            'week_time_end'      => $wte,
-            'day_times'          => $posted_day_times,
             'shift_week_times'   => $posted_shift_week_times,
             'shift_day_times'    => $posted_shift_day_times,
             'pause_minuten'      => $pause_val,
@@ -243,8 +205,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt->execute([
                         $name_enc, (float)$vacay, $max_weekly_hours, $days_str,
                         $time_mode,
-                        $time_mode === 'week' ? $wts : null,
-                        $time_mode === 'week' ? $wte : null,
+                        null,
+                        null,
                         $pause_val,
                         $url_zusatz,
                         $emp_id,
@@ -260,28 +222,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt->execute([
                         $name_enc, (float)$vacay, $max_weekly_hours, $days_str,
                         $time_mode,
-                        $time_mode === 'week' ? $wts : null,
-                        $time_mode === 'week' ? $wte : null,
+                        null,
+                        null,
                         $pause_val,
                         $url_zusatz,
                     ]);
                     $emp_id = (int)$pdo->lastInsertId();
-                }
-
-                // Save per-day times if mode = 'day' and no shifts selected
-                // (with shifts selected, times are kept per-shift below instead).
-                if ($time_mode === 'day' && empty($selected_shift_ids) && !empty($posted_day_times)) {
-                    $dt_stmt = $pdo->prepare(
-                        'INSERT INTO employee_day_times (employee_id, day_of_week, time_start, time_end)
-                         VALUES (?, ?, ?, ?)
-                         ON DUPLICATE KEY UPDATE time_start=VALUES(time_start), time_end=VALUES(time_end)'
-                    );
-                    foreach ($days as $d) {
-                        $di = (int)$d;
-                        if (isset($posted_day_times[$di])) {
-                            $dt_stmt->execute([$emp_id, $di, $posted_day_times[$di]['start'], $posted_day_times[$di]['end']]);
-                        }
-                    }
                 }
 
                 // Save shift assignments
@@ -461,7 +407,7 @@ require __DIR__ . '/templates/header.php';
                 <div class="form-text mt-1">
                     Gesamt: <strong id="shift-total-hours">—</strong>
                     &nbsp;·&nbsp;
-                    Bei „Voll" gelten die Standardzeiten der Dienste; bei „Individuell" können die Zeiten je Dienst unten angepasst werden.
+                    Bei „Voll" gelten die Standardzeiten der Dienste. Für „Individuell" muss hier mindestens ein Dienst ausgewählt sein &ndash; die Zeit wird dann unten je Dienst festgelegt.
                 </div>
             </div>
             <?php endif; ?>
@@ -527,122 +473,85 @@ require __DIR__ . '/templates/header.php';
                 </div>
             </div>
 
-            <!-- Wochenzeit (für mode = 'week') -->
+            <!-- Wochenzeit (für mode = 'week'): eine Zeit je ausgewähltem Dienst -->
             <div id="section-week" class="card bg-light border mb-3 p-3" style="display:none;">
-                <label class="form-label fw-semibold mb-2">Arbeitszeit (für alle Tage)</label>
-
-                <!-- Ohne Dienste: eine feste Zeit für die ganze Woche -->
-                <div id="week-generic-times" class="d-flex align-items-center gap-3">
-                    <div>
-                        <label class="form-label small text-muted mb-1">Von</label>
-                        <input type="time" class="form-control" name="week_time_start" id="week_time_start"
-                               value="<?= h($form['week_time_start']) ?>">
-                    </div>
-                    <div class="pt-3 text-muted fw-bold">–</div>
-                    <div>
-                        <label class="form-label small text-muted mb-1">Bis</label>
-                        <input type="time" class="form-control" name="week_time_end" id="week_time_end"
-                               value="<?= h($form['week_time_end']) ?>">
-                    </div>
-                    <div class="pt-3">
-                        <span class="text-muted small" id="week-duration"></span>
-                    </div>
+                <label class="form-label fw-semibold mb-2">Arbeitszeit je Dienst (für alle Tage)</label>
+                <div class="form-text mb-2" id="week-no-shift-hint" style="display:none;">
+                    Bitte oben mindestens einen Dienst auswählen.
                 </div>
-
-                <!-- Mit Dienste: eine Zeit je Dienst, für die ganze Woche -->
-                <div id="week-shift-times" style="display:none;">
-                    <div class="table-responsive">
-                        <table class="table table-sm table-bordered align-middle mb-0" style="max-width:520px;">
-                            <thead class="table-light">
-                                <tr><th>Dienst</th><th>Von</th><th>Bis</th><th>Dauer</th></tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($all_shifts as $sh):
-                                    $sid = (int)$sh['id'];
-                                    $sv_s = $form['shift_week_times'][$sid]['start'] ?? substr($sh['time_start'], 0, 5);
-                                    $sv_e = $form['shift_week_times'][$sid]['end']   ?? substr($sh['time_end'],   0, 5);
-                                ?>
-                                <tr class="shift-time-row" data-shift-id="<?= $sid ?>" style="display:none;">
-                                    <td>
-                                        <span class="badge" style="background:<?= h($sh['color']) ?>;"><?= h($sh['short_name']) ?></span>
-                                        <?= h($sh['name']) ?>
-                                    </td>
-                                    <td>
-                                        <input type="time" class="form-control form-control-sm shift-week-time-start"
-                                               name="shift_week_time_start_<?= $sid ?>" data-shift-id="<?= $sid ?>"
-                                               value="<?= h($sv_s) ?>">
-                                    </td>
-                                    <td>
-                                        <input type="time" class="form-control form-control-sm shift-week-time-end"
-                                               name="shift_week_time_end_<?= $sid ?>" data-shift-id="<?= $sid ?>"
-                                               value="<?= h($sv_e) ?>">
-                                    </td>
-                                    <td class="text-muted small shift-week-duration" id="shift-week-dur-<?= $sid ?>">—</td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered align-middle mb-0" style="max-width:520px;">
+                        <thead class="table-light">
+                            <tr><th>Dienst</th><th>Von</th><th>Bis</th><th>Dauer</th></tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($all_shifts as $sh):
+                                $sid = (int)$sh['id'];
+                                $sv_s = $form['shift_week_times'][$sid]['start'] ?? substr($sh['time_start'], 0, 5);
+                                $sv_e = $form['shift_week_times'][$sid]['end']   ?? substr($sh['time_end'],   0, 5);
+                            ?>
+                            <tr class="shift-time-row" data-shift-id="<?= $sid ?>" style="display:none;">
+                                <td>
+                                    <span class="badge" style="background:<?= h($sh['color']) ?>;"><?= h($sh['short_name']) ?></span>
+                                    <?= h($sh['name']) ?>
+                                </td>
+                                <td>
+                                    <input type="time" class="form-control form-control-sm shift-week-time-start"
+                                           name="shift_week_time_start_<?= $sid ?>" data-shift-id="<?= $sid ?>"
+                                           value="<?= h($sv_s) ?>">
+                                </td>
+                                <td>
+                                    <input type="time" class="form-control form-control-sm shift-week-time-end"
+                                           name="shift_week_time_end_<?= $sid ?>" data-shift-id="<?= $sid ?>"
+                                           value="<?= h($sv_e) ?>">
+                                </td>
+                                <td class="text-muted small shift-week-duration" id="shift-week-dur-<?= $sid ?>">—</td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
-            <!-- Pro-Tag-Zeiten (für mode = 'day') -->
+            <!-- Pro-Tag-Zeiten (für mode = 'day'): eine Zeit je ausgewähltem Dienst und Tag -->
             <div id="section-day" class="mb-3" style="display:none;">
-                <label class="form-label fw-semibold mb-2">Arbeitszeiten pro Tag</label>
+                <label class="form-label fw-semibold mb-2">Arbeitszeiten pro Tag und Dienst</label>
+                <div class="form-text mb-2" id="day-no-shift-hint" style="display:none;">
+                    Bitte oben mindestens einen Dienst auswählen.
+                </div>
 
-                <?php foreach ($day_labels as $idx => $label):
-                    $dt_s = $form['day_times'][$idx]['start'] ?? $bz_start;
-                    $dt_e = $form['day_times'][$idx]['end']   ?? $bz_end;
-                ?>
+                <?php foreach ($day_labels as $idx => $label): ?>
                 <div class="day-time-row card bg-light border mb-2 p-2" data-day="<?= $idx ?>"
                      <?= !in_array((string)$idx, array_map('strval', $form['available_days'])) ? 'style="opacity:0.35;pointer-events:none;"' : '' ?>>
                     <div class="fw-semibold mb-1"><?= $label ?></div>
 
-                    <!-- Ohne Dienste: eine feste Zeit für diesen Tag -->
-                    <div class="day-generic-times d-flex align-items-center gap-3">
-                        <div>
-                            <label class="form-label small text-muted mb-0">Von</label>
-                            <input type="time" class="form-control form-control-sm day-time-start"
-                                   name="day_time_start_<?= $idx ?>" data-day="<?= $idx ?>" value="<?= h($dt_s) ?>">
-                        </div>
-                        <div>
-                            <label class="form-label small text-muted mb-0">Bis</label>
-                            <input type="time" class="form-control form-control-sm day-time-end"
-                                   name="day_time_end_<?= $idx ?>" data-day="<?= $idx ?>" value="<?= h($dt_e) ?>">
-                        </div>
-                        <span class="text-muted small day-duration" id="dur-<?= $idx ?>">—</span>
-                    </div>
-
-                    <!-- Mit Dienste: eine Zeit je Dienst, für diesen Tag -->
-                    <div class="day-shift-times" style="display:none;">
-                        <div class="table-responsive">
-                            <table class="table table-sm mb-0">
-                                <tbody>
-                                    <?php foreach ($all_shifts as $sh):
-                                        $sid  = (int)$sh['id'];
-                                        $sv_s = $form['shift_day_times'][$idx][$sid]['start'] ?? substr($sh['time_start'], 0, 5);
-                                        $sv_e = $form['shift_day_times'][$idx][$sid]['end']   ?? substr($sh['time_end'],   0, 5);
-                                    ?>
-                                    <tr class="shift-time-row" data-shift-id="<?= $sid ?>" style="display:none;">
-                                        <td class="align-middle">
-                                            <span class="badge" style="background:<?= h($sh['color']) ?>;"><?= h($sh['short_name']) ?></span>
-                                        </td>
-                                        <td>
-                                            <input type="time" class="form-control form-control-sm shift-day-time-start"
-                                                   name="shift_day_time_start_<?= $idx ?>_<?= $sid ?>"
-                                                   data-day="<?= $idx ?>" data-shift-id="<?= $sid ?>" value="<?= h($sv_s) ?>">
-                                        </td>
-                                        <td>
-                                            <input type="time" class="form-control form-control-sm shift-day-time-end"
-                                                   name="shift_day_time_end_<?= $idx ?>_<?= $sid ?>"
-                                                   data-day="<?= $idx ?>" data-shift-id="<?= $sid ?>" value="<?= h($sv_e) ?>">
-                                        </td>
-                                        <td class="text-muted small shift-day-duration" id="shift-day-dur-<?= $idx ?>-<?= $sid ?>">—</td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <?php foreach ($all_shifts as $sh):
+                                    $sid  = (int)$sh['id'];
+                                    $sv_s = $form['shift_day_times'][$idx][$sid]['start'] ?? substr($sh['time_start'], 0, 5);
+                                    $sv_e = $form['shift_day_times'][$idx][$sid]['end']   ?? substr($sh['time_end'],   0, 5);
+                                ?>
+                                <tr class="shift-time-row" data-shift-id="<?= $sid ?>" style="display:none;">
+                                    <td class="align-middle">
+                                        <span class="badge" style="background:<?= h($sh['color']) ?>;"><?= h($sh['short_name']) ?></span>
+                                    </td>
+                                    <td>
+                                        <input type="time" class="form-control form-control-sm shift-day-time-start"
+                                               name="shift_day_time_start_<?= $idx ?>_<?= $sid ?>"
+                                               data-day="<?= $idx ?>" data-shift-id="<?= $sid ?>" value="<?= h($sv_s) ?>">
+                                    </td>
+                                    <td>
+                                        <input type="time" class="form-control form-control-sm shift-day-time-end"
+                                               name="shift_day_time_end_<?= $idx ?>_<?= $sid ?>"
+                                               data-day="<?= $idx ?>" data-shift-id="<?= $sid ?>" value="<?= h($sv_e) ?>">
+                                    </td>
+                                    <td class="text-muted small shift-day-duration" id="shift-day-dur-<?= $idx ?>-<?= $sid ?>">—</td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -751,15 +660,6 @@ require __DIR__ . '/templates/header.php';
         return h > 0 ? `${h}h ${m > 0 ? m + 'min' : ''}` : `${m} min`;
     }
 
-    // Week duration
-    const wts = document.getElementById('week_time_start');
-    const wte = document.getElementById('week_time_end');
-    const wdur = document.getElementById('week-duration');
-    function updateWeekDur() { if (wdur) wdur.textContent = timeDiff(wts?.value, wte?.value); }
-    wts?.addEventListener('change', updateWeekDur);
-    wte?.addEventListener('change', updateWeekDur);
-    updateWeekDur();
-
     // --- Shift total hours ---
     const shiftData = {
         <?php foreach ($all_shifts as $sh):
@@ -787,8 +687,7 @@ require __DIR__ . '/templates/header.php';
     updateShiftTotal();
 
     // --- Individuelle Zeiten je Dienst (Woche/Tag-Modus) ---
-    // Only show time inputs for shifts that are actually selected above;
-    // fall back to the generic single time range when no shifts are selected.
+    // Only show time inputs for shifts that are actually selected above.
     function updateShiftTimeRows() {
         const checkedIds = Array.from(document.querySelectorAll('.shift-check:checked')).map(cb => cb.value);
         const anyChecked = checkedIds.length > 0;
@@ -797,17 +696,10 @@ require __DIR__ . '/templates/header.php';
             row.style.display = checkedIds.includes(row.dataset.shiftId) ? '' : 'none';
         });
 
-        const weekGeneric = document.getElementById('week-generic-times');
-        const weekShifts  = document.getElementById('week-shift-times');
-        if (weekGeneric) weekGeneric.style.display = anyChecked ? 'none' : '';
-        if (weekShifts)  weekShifts.style.display  = anyChecked ? '' : 'none';
-
-        document.querySelectorAll('.day-time-row').forEach(dayRow => {
-            const generic = dayRow.querySelector('.day-generic-times');
-            const shifts  = dayRow.querySelector('.day-shift-times');
-            if (generic) generic.style.display = anyChecked ? 'none' : '';
-            if (shifts)  shifts.style.display  = anyChecked ? '' : 'none';
-        });
+        const weekHint = document.getElementById('week-no-shift-hint');
+        if (weekHint) weekHint.style.display = anyChecked ? 'none' : '';
+        const dayHint = document.getElementById('day-no-shift-hint');
+        if (dayHint) dayHint.style.display = anyChecked ? 'none' : '';
     }
     document.querySelectorAll('.shift-check').forEach(cb => {
         cb.addEventListener('change', updateShiftTimeRows);
@@ -836,19 +728,6 @@ require __DIR__ . '/templates/header.php';
         });
     });
     document.querySelectorAll('.shift-day-time-start').forEach(el => el.dispatchEvent(new Event('change')));
-
-    // Per-day durations
-    document.querySelectorAll('.day-time-start, .day-time-end').forEach(el => {
-        el.addEventListener('change', function () {
-            const d = this.dataset.day;
-            const s = document.querySelector(`.day-time-start[data-day="${d}"]`)?.value;
-            const e = document.querySelector(`.day-time-end[data-day="${d}"]`)?.value;
-            const dur = document.getElementById(`dur-${d}`);
-            if (dur) dur.textContent = timeDiff(s, e);
-        });
-    });
-    // Init all day durations
-    document.querySelectorAll('.day-time-start').forEach(el => el.dispatchEvent(new Event('change')));
 })();
 </script>
 
