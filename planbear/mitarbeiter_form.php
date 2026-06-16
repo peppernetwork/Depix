@@ -15,6 +15,7 @@ require_auth(['editor','admin']);
 
 $pdo    = get_pdo();
 ensure_location_tables($pdo);
+ensure_max_weekly_hours_column($pdo);
 $emp_id = req_int('id', $_GET);
 $is_edit = ($emp_id !== null);
 $emp     = null;
@@ -62,6 +63,7 @@ $errors = [];
 $form   = [
     'name'               => $is_edit ? decrypt($emp['name_enc']) : '',
     'vacation_hours'     => $is_edit ? (string)$emp['vacation_hours'] : '0',
+    'max_weekly_hours'   => $is_edit && $emp['max_weekly_hours'] !== null ? (string)$emp['max_weekly_hours'] : '',
     'available_days'     => $is_edit ? explode(',', $emp['available_days']) : ['0','1','2','3','4'],
     'time_mode'          => $is_edit ? ($emp['time_mode'] ?? 'full') : 'full',
     'week_time_start'    => $is_edit ? substr($emp['week_time_start'] ?? '', 0, 5) : $bz_start,
@@ -83,6 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $name           = trim($_POST['name'] ?? '');
         $vacay          = $_POST['vacation_hours'] ?? '0';
+        $max_weekly_raw = trim($_POST['max_weekly_hours'] ?? '');
         $days           = $_POST['available_days'] ?? [];
         $time_mode      = $_POST['time_mode'] ?? 'full';
         $wts            = trim($_POST['week_time_start'] ?? '');
@@ -109,6 +112,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if (!is_numeric($vacay) || (float)$vacay < 0) {
             $errors[] = 'Ferienstunden muss eine positive Zahl oder 0 sein.';
+        }
+        $max_weekly_hours = null;
+        if ($max_weekly_raw !== '') {
+            if (!is_numeric($max_weekly_raw) || (float)$max_weekly_raw <= 0) {
+                $errors[] = 'Maximale Arbeitszeit pro Woche muss eine Zahl größer 0 sein (oder leer = kein Limit).';
+            } else {
+                $max_weekly_hours = (float)$max_weekly_raw;
+            }
         }
         $valid_days = ['0','1','2','3','4'];
         $days       = array_intersect((array)$days, $valid_days);
@@ -143,6 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $form = [
             'name'               => $name,
             'vacation_hours'     => $vacay,
+            'max_weekly_hours'   => $max_weekly_raw,
             'available_days'     => $days,
             'time_mode'          => $time_mode,
             'week_time_start'    => $wts,
@@ -170,12 +182,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 if ($is_edit) {
                     $stmt = $pdo->prepare(
-                        'UPDATE employees SET name_enc=?, vacation_hours=?, available_days=?,
+                        'UPDATE employees SET name_enc=?, vacation_hours=?, max_weekly_hours=?, available_days=?,
                          time_mode=?, week_time_start=?, week_time_end=?,
                          pause_minuten=?, urlaub_zusatz_tage=? WHERE id=?'
                     );
                     $stmt->execute([
-                        $name_enc, (float)$vacay, $days_str,
+                        $name_enc, (float)$vacay, $max_weekly_hours, $days_str,
                         $time_mode,
                         $time_mode === 'week' ? $wts : null,
                         $time_mode === 'week' ? $wte : null,
@@ -187,12 +199,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare('DELETE FROM employee_shifts WHERE employee_id=?')->execute([$emp_id]);
                 } else {
                     $stmt = $pdo->prepare(
-                        'INSERT INTO employees (name_enc, vacation_hours, available_days,
+                        'INSERT INTO employees (name_enc, vacation_hours, max_weekly_hours, available_days,
                          time_mode, week_time_start, week_time_end,
-                         pause_minuten, urlaub_zusatz_tage) VALUES (?,?,?,?,?,?,?,?)'
+                         pause_minuten, urlaub_zusatz_tage) VALUES (?,?,?,?,?,?,?,?,?)'
                     );
                     $stmt->execute([
-                        $name_enc, (float)$vacay, $days_str,
+                        $name_enc, (float)$vacay, $max_weekly_hours, $days_str,
                         $time_mode,
                         $time_mode === 'week' ? $wts : null,
                         $time_mode === 'week' ? $wte : null,
@@ -295,6 +307,18 @@ require __DIR__ . '/templates/header.php';
                     <span class="input-group-text">h</span>
                 </div>
                 <div class="form-text">0 = kein Dienst in Schulferien</div>
+            </div>
+
+            <!-- Maximale Arbeitszeit pro Woche -->
+            <div class="mb-3">
+                <label for="max_weekly_hours" class="form-label fw-semibold">Maximale Arbeitszeit (pro Woche)</label>
+                <div class="input-group" style="max-width:200px;">
+                    <input type="number" class="form-control" id="max_weekly_hours" name="max_weekly_hours"
+                           value="<?= h($form['max_weekly_hours']) ?>"
+                           min="0.5" max="60" step="0.5" placeholder="kein Limit">
+                    <span class="input-group-text">h</span>
+                </div>
+                <div class="form-text">Leer = kein Limit. Bei der Planung wird gewarnt, wenn zu viel oder zu wenig eingeplant ist.</div>
             </div>
 
             <hr class="my-4">

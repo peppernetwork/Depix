@@ -216,3 +216,15 @@ function ensure_vacation_request_group_column(PDO $pdo): void {
         $pdo->exec('ALTER TABLE employee_vacations ADD KEY idx_request_group (request_group_id)');
     }
 }
+
+/**
+ * Lazily add `max_weekly_hours` to `employees` (so already-installed systems
+ * pick up the weekly-hours-limit warning feature without a manual migration).
+ * NULL means no limit is configured for that employee.
+ */
+function ensure_max_weekly_hours_column(PDO $pdo): void {
+    $col = $pdo->query("SHOW COLUMNS FROM employees LIKE 'max_weekly_hours'")->fetch();
+    if (!$col) {
+        $pdo->exec('ALTER TABLE employees ADD COLUMN max_weekly_hours DECIMAL(5,2) DEFAULT NULL');
+    }
+}

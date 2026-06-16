@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS employees (
     name_enc TEXT NOT NULL,
     weekly_hours DECIMAL(5,2) NOT NULL DEFAULT 0,
     vacation_hours DECIMAL(5,2) NOT NULL DEFAULT 0,
+    max_weekly_hours DECIMAL(5,2) DEFAULT NULL COMMENT 'NULL = kein Limit',
     available_days VARCHAR(20) NOT NULL DEFAULT '0,1,2,3,4',
     time_mode ENUM('full','week','day') NOT NULL DEFAULT 'full',
     week_time_start TIME NULL,

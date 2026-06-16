@@ -15,6 +15,7 @@ require_auth();
 
 $pdo = get_pdo();
 ensure_location_tables($pdo);
+ensure_max_weekly_hours_column($pdo);
 
 $schedule_id = req_int('schedule_id');
 $revision_id = req_int('revision_id');
@@ -193,7 +194,7 @@ foreach ($stmt->fetchAll() as $r) {
 }
 
 // Employees with shift assignments
-$employees = $pdo->query('SELECT id, name_enc FROM employees WHERE is_active=1 ORDER BY id')->fetchAll();
+$employees = $pdo->query('SELECT id, name_enc, max_weekly_hours FROM employees WHERE is_active=1 ORDER BY id')->fetchAll();
 
 $emp_shifts_all = [];
 $rows = $pdo->query(
@@ -224,14 +225,35 @@ $all_shifts = $pdo->query('SELECT id, name, short_name, time_start, time_end FRO
 
 $de_days = ['Mo', 'Di', 'Mi', 'Do', 'Fr'];
 
-// Week total per employee
-$week_totals = [];
+// Week total per employee, and a warning if it's too far from the
+// employee's configured maximum weekly hours (over the max, or notably
+// under it once some hours have actually been planned).
+$week_totals   = [];
+$week_warnings = [];
+$emp_names     = [];
 foreach ($employees as $emp) {
     $total = 0;
     foreach ($week_dates as $wd) {
         $total += (float)($entry_map[$emp['id']][$wd]['hours'] ?? 0);
     }
     $week_totals[$emp['id']] = $total;
+
+    $emp_names[$emp['id']] = decrypt($emp['name_enc']);
+
+    $max_h = $emp['max_weekly_hours'] !== null ? (float)$emp['max_weekly_hours'] : null;
+    if ($max_h !== null) {
+        if ($total > $max_h + 0.01) {
+            $week_warnings[$emp['id']] = [
+                'type' => 'over',
+                'diff' => $total - $max_h,
+            ];
+        } elseif ($total > 0 && $total < $max_h - 0.01) {
+            $week_warnings[$emp['id']] = [
+                'type' => 'under',
+                'diff' => $max_h - $total,
+            ];
+        }
+    }
 }
 
 $page_title = 'Plan: ' . $schedule['name'];
@@ -301,6 +323,24 @@ require __DIR__ . '/templates/header.php';
         </a>
     </div>
 </div>
+
+<?php if (!empty($week_warnings)): ?>
+<div class="alert alert-warning d-flex align-items-start gap-2">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <div>
+        <strong>Achtung:</strong> Bei folgenden Mitarbeitern weicht die geplante Wochenstundenzahl von der maximalen Arbeitszeit ab:
+        <ul class="mb-0 mt-1">
+            <?php foreach ($week_warnings as $weid => $w): ?>
+                <li>
+                    <?= h($emp_names[$weid] ?? '') ?>:
+                    <?= h(number_format($week_totals[$weid], 2, ',', '.')) ?> h geplant
+                    (<?= $w['type'] === 'over' ? 'zu viel' : 'zu wenig' ?>, <?= $w['type'] === 'over' ? '+' : '−' ?><?= h(number_format($w['diff'], 2, ',', '.')) ?> h)
+                </li>
+            <?php endforeach; ?>
+        </ul>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Week navigation -->
 <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
@@ -485,8 +525,20 @@ require __DIR__ . '/templates/header.php';
                 <?php endforeach; ?>
 
                 <td class="text-center fw-bold small">
-                    <?php $t = $week_totals[$eid] ?? 0; ?>
+                    <?php $t = $week_totals[$eid] ?? 0; $warn = $week_warnings[$eid] ?? null; ?>
                     <?= $t > 0 ? h(number_format($t, 2, ',', '.')) . ' h' : '—' ?>
+                    <?php if ($warn): ?>
+                        <div class="mt-1">
+                            <span class="badge <?= $warn['type'] === 'over' ? 'bg-danger' : 'bg-warning text-dark' ?>"
+                                  style="font-size:0.62rem;"
+                                  title="<?= $warn['type'] === 'over'
+                                        ? 'Maximale Arbeitszeit überschritten'
+                                        : 'Unter der maximalen Arbeitszeit' ?>">
+                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                <?= $warn['type'] === 'over' ? '+' : '−' ?><?= h(number_format($warn['diff'], 2, ',', '.')) ?> h
+                            </span>
+                        </div>
+                    <?php endif; ?>
                 </td>
             </tr>
             <?php endforeach; ?>

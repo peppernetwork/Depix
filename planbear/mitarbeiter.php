@@ -12,6 +12,7 @@ session_start_secure();
 require_auth(); // All roles can view
 
 $pdo = get_pdo();
+ensure_max_weekly_hours_column($pdo);
 
 // Handle DELETE (admin only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
@@ -32,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Load all employees with time info
 $employees = $pdo->query(
-    'SELECT id, name_enc, weekly_hours, vacation_hours, available_days,
+    'SELECT id, name_enc, weekly_hours, vacation_hours, max_weekly_hours, available_days,
             time_mode, week_time_start, week_time_end, is_active
      FROM employees ORDER BY id'
 )->fetchAll();
@@ -92,6 +93,7 @@ require __DIR__ . '/templates/header.php';
                         <th>Dienste</th>
                         <th>Arbeitszeit</th>
                         <th>Ferien-Std.</th>
+                        <th>Max. Std./Woche</th>
                         <th>Verf. Tage</th>
                         <th>Status</th>
                         <?php if (has_role('editor','admin')): ?>
@@ -139,6 +141,11 @@ require __DIR__ . '/templates/header.php';
                             ?>
                         </td>
                         <td><?= h(number_format((float)$emp['vacation_hours'], 2, ',', '.')) ?> h</td>
+                        <td>
+                            <?= $emp['max_weekly_hours'] !== null
+                                ? h(number_format((float)$emp['max_weekly_hours'], 2, ',', '.')) . ' h'
+                                : '<span class="text-muted small">kein Limit</span>' ?>
+                        </td>
                         <td>
                             <?php foreach (parse_available_days($emp['available_days']) as $day): ?>
                                 <span class="day-badge"><?= h($day) ?></span>
