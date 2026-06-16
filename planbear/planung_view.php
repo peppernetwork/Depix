@@ -16,8 +16,8 @@ require_auth();
 $pdo = get_pdo();
 ensure_location_tables($pdo);
 
-$schedule_id = req_int('schedule_id', $_GET);
-$revision_id = req_int('revision_id', $_GET);
+$schedule_id = req_int('schedule_id');
+$revision_id = req_int('revision_id');
 
 if (!$schedule_id || !$revision_id) {
     flash('error', 'Ungültige Parameter.');
