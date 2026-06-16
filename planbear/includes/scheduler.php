@@ -47,7 +47,8 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
     // (Frühdienst + Kernarbeitszeit + Spätdienst = Gesamtzeit). The Frühdienst/Spätdienst
     // shifts (assigned via Schichten → Rolle) are the source of truth; settings.fruehdienst_start
     // etc. only remain as a fallback for systems where no shift has been assigned that role yet.
-    ensure_shift_slot_column($pdo);
+    // (Schema migrations are ensured by the caller via ensure_schedule_generation_schema(),
+    // before any transaction is opened — DDL statements implicitly commit MySQL transactions.)
     $fd_shift        = get_slot_shift($pdo, 'fruehdienst');
     $sd_shift        = get_slot_shift($pdo, 'spaetdienst');
     $bz_start        = $fd_shift ? substr($fd_shift['time_start'], 0, 5)
@@ -119,7 +120,6 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
     }
 
     // --- Vacation periods (with per-week work/non-work granularity) ---
-    ensure_vacation_week_table($pdo);
     $stmt = $pdo->prepare('SELECT id, start_date, end_date, is_work_period FROM vacation_periods WHERE school_year_id = ?');
     $stmt->execute([$school_year_id]);
     $vacations = $stmt->fetchAll();
@@ -318,10 +318,23 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
 }
 
 /**
+ * Run the lazy schema migrations that generate_schedule() depends on. Must be
+ * called before opening a transaction: CREATE TABLE/ALTER TABLE statements
+ * implicitly commit any open MySQL transaction, which would otherwise leave
+ * create_schedule_with_revision()/add_revision() trying to commit/roll back a
+ * transaction that the server already closed ("There is no active transaction").
+ */
+function ensure_schedule_generation_schema(PDO $pdo): void {
+    ensure_shift_slot_column($pdo);
+    ensure_vacation_week_table($pdo);
+}
+
+/**
  * Create a new schedule + first revision and run the generation.
  * Returns [$schedule_id, $revision_id, $entry_count].
  */
 function create_schedule_with_revision(PDO $pdo, int $school_year_id, string $name, int $user_id, string $notes = ''): array {
+    ensure_schedule_generation_schema($pdo);
     $pdo->beginTransaction();
     try {
         $pdo->prepare('INSERT INTO schedules (school_year_id, name) VALUES (?, ?)')->execute([$school_year_id, $name]);
@@ -357,6 +370,7 @@ function add_revision(PDO $pdo, int $schedule_id, int $user_id, string $notes = 
     $stmt->execute([$schedule_id]);
     $next_rev = (int)$stmt->fetchColumn();
 
+    ensure_schedule_generation_schema($pdo);
     $pdo->beginTransaction();
     try {
         $pdo->prepare('INSERT INTO schedule_revisions (schedule_id, revision_number, created_by, notes) VALUES (?, ?, ?, ?)')
