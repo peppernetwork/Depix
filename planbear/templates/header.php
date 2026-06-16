@@ -67,6 +67,12 @@ $user = current_user();
                         <i class="bi bi-clock-history"></i> Schichten
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= ($active_nav ?? '') === 'orte' ? 'active' : '' ?>"
+                       href="/orte.php">
+                        <i class="bi bi-geo-alt-fill"></i> Orte
+                    </a>
+                </li>
                 <?php endif; ?>
                 <li class="nav-item">
                     <a class="nav-link <?= ($active_nav ?? '') === 'urlaub' ? 'active' : '' ?>"

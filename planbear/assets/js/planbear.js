@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     newVal = 0;
                 }
 
-                fetch('/planbear/public/api_eintrag.php', {
+                fetch('/api_eintrag.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: new URLSearchParams({
@@ -82,6 +82,61 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             });
         });
+    });
+
+    // -------------------------------------------------------------------------
+    // Zuteilung: location assignment dropdown (planung_view.php)
+    // -------------------------------------------------------------------------
+    document.querySelectorAll('select.loc-select').forEach(function (select) {
+        function applyColor() {
+            var opt = select.options[select.selectedIndex];
+            var color = opt ? opt.dataset.color : '';
+            if (select.value && color) {
+                select.style.backgroundColor = color;
+                select.style.color = '#fff';
+            } else {
+                select.style.backgroundColor = '';
+                select.style.color = '';
+            }
+        }
+        applyColor();
+
+        select.addEventListener('click', function (e) { e.stopPropagation(); });
+        select.addEventListener('change', function () {
+            var csrfToken = document.getElementById('csrf-token-value')
+                            ? document.getElementById('csrf-token-value').value
+                            : '';
+            var previousValue = select.dataset.previousValue || '';
+
+            fetch('/api_zuteilung.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    csrf_token:  csrfToken,
+                    revision_id: select.dataset.revisionId,
+                    employee_id: select.dataset.employeeId,
+                    entry_date:  select.dataset.date,
+                    location_id: select.value
+                })
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.success) {
+                    applyColor();
+                    select.dataset.previousValue = select.value;
+                } else {
+                    select.value = previousValue;
+                    applyColor();
+                    alert('Fehler beim Zuteilen: ' + (data.error || 'Unbekannter Fehler'));
+                }
+            })
+            .catch(function () {
+                select.value = previousValue;
+                applyColor();
+                alert('Netzwerkfehler beim Zuteilen.');
+            });
+        });
+        select.dataset.previousValue = select.value;
     });
 
     // -------------------------------------------------------------------------

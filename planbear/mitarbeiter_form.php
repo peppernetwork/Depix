@@ -8,11 +8,13 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/crypto.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/zuteilung.php';
 
 session_start_secure();
 require_auth(['editor','admin']);
 
 $pdo    = get_pdo();
+ensure_location_tables($pdo);
 $emp_id = req_int('id', $_GET);
 $is_edit = ($emp_id !== null);
 $emp     = null;
@@ -45,6 +47,10 @@ if ($is_edit && $emp_id) {
     $stmt->execute([$emp_id]);
     $emp_shift_ids = array_column($stmt->fetchAll(), 'shift_id');
 }
+
+// Load all defined locations + this employee's preferred ones
+$all_locations = $pdo->query('SELECT * FROM locations ORDER BY sort_order, id')->fetchAll();
+$emp_location_ids = ($is_edit && $emp_id) ? get_employee_location_preferences($pdo, $emp_id) : [];
 
 // Load global Betreuungszeit for placeholder (Schichten → Rolle "Kernarbeitszeit" wins, if set)
 ensure_shift_slot_column($pdo);
@@ -151,6 +157,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $valid_shift_ids    = array_column($all_shifts, 'id');
         $selected_shift_ids = array_values(array_intersect($selected_shift_ids, $valid_shift_ids));
 
+        // Collect and validate preferred locations
+        $selected_location_ids = array_map('intval', array_filter($_POST['location_ids'] ?? [], 'is_numeric'));
+        $valid_location_ids    = array_column($all_locations, 'id');
+        $selected_location_ids = array_values(array_intersect($selected_location_ids, $valid_location_ids));
+
         if (empty($errors)) {
             $name_enc = encrypt($name);
             $days_str = implode(',', $days);
@@ -214,6 +225,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                // Save preferred locations
+                set_employee_location_preferences($pdo, $emp_id, $selected_location_ids);
+
                 $pdo->commit();
                 flash('success', $is_edit ? 'Mitarbeiter aktualisiert.' : 'Mitarbeiter angelegt.');
                 redirect('mitarbeiter.php');
@@ -222,8 +236,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Datenbankfehler: ' . $e->getMessage();
             }
         }
-        // Keep selected shifts for re-display after error
-        $emp_shift_ids = $selected_shift_ids;
+        // Keep selections for re-display after error
+        $emp_shift_ids    = $selected_shift_ids;
+        $emp_location_ids = $selected_location_ids;
     }
 }
 
@@ -342,6 +357,36 @@ require __DIR__ . '/templates/header.php';
                     Gesamt: <strong id="shift-total-hours">—</strong>
                     &nbsp;·&nbsp;
                     Wenn Dienste gewählt, werden die Zeiten unten ignoriert.
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <!-- ── Bevorzugte Orte (Zuteilung) ─────────────────────── -->
+            <?php if (!empty($all_locations)): ?>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">
+                    Bevorzugte Orte
+                    <span class="text-muted fw-normal small">(für die Zuteilung, Mehrfachauswahl möglich)</span>
+                </label>
+                <div class="d-flex flex-wrap gap-3">
+                    <?php foreach ($all_locations as $loc):
+                        $checked = in_array((int)$loc['id'], array_map('intval', $emp_location_ids));
+                    ?>
+                    <div class="form-check d-flex align-items-center gap-2">
+                        <input class="form-check-input" type="checkbox"
+                               name="location_ids[]" value="<?= (int)$loc['id'] ?>"
+                               id="loc_<?= (int)$loc['id'] ?>"
+                               <?= $checked ? 'checked' : '' ?>>
+                        <label class="form-check-label d-flex align-items-center gap-2 cursor-pointer"
+                               for="loc_<?= (int)$loc['id'] ?>">
+                            <span class="badge" style="background:<?= h($loc['color']) ?>;">&nbsp;</span>
+                            <?= h($loc['name']) ?>
+                        </label>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="form-text mt-1">
+                    Ohne Auswahl wird bei der Zufallszuteilung aus allen Orten gewählt.
                 </div>
             </div>
             <?php endif; ?>

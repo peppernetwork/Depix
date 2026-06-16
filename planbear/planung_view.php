@@ -8,11 +8,13 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/crypto.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/scheduler.php';
+require_once __DIR__ . '/includes/zuteilung.php';
 
 session_start_secure();
 require_auth();
 
 $pdo = get_pdo();
+ensure_location_tables($pdo);
 
 $schedule_id = req_int('schedule_id', $_GET);
 $revision_id = req_int('revision_id', $_GET);
@@ -60,6 +62,39 @@ for ($i = 0; $i < 5; $i++) {
     $week_dates[] = (clone $week_monday)->modify("+{$i} days")->format('Y-m-d');
 }
 
+// ─── Random location assignment for the displayed week ────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'zufall_zuteilen') {
+    require_auth(['editor','admin']);
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        flash('error', 'Ungültige Anfrage (CSRF).');
+    } else {
+        $all_location_ids = array_column($pdo->query('SELECT id FROM locations')->fetchAll(), 'id');
+        if (empty($all_location_ids)) {
+            flash('error', 'Es sind noch keine Orte definiert.');
+        } else {
+            $entries_stmt = $pdo->prepare(
+                'SELECT employee_id, entry_date FROM schedule_entries
+                 WHERE revision_id=? AND entry_date BETWEEN ? AND ? AND hours > 0'
+            );
+            $entries_stmt->execute([$revision_id, $week_dates[0], $week_dates[4]]);
+            $update_stmt = $pdo->prepare(
+                'UPDATE schedule_entries SET location_id=? WHERE revision_id=? AND employee_id=? AND entry_date=?'
+            );
+            $pref_cache = [];
+            foreach ($entries_stmt->fetchAll() as $row) {
+                $eid = (int)$row['employee_id'];
+                if (!isset($pref_cache[$eid])) {
+                    $pref_cache[$eid] = get_employee_location_preferences($pdo, $eid);
+                }
+                $loc = pick_random_location($all_location_ids, $pref_cache[$eid]);
+                $update_stmt->execute([$loc, $revision_id, $eid, $row['entry_date']]);
+            }
+            flash('success', 'Orte für diese Woche zufällig zugeteilt.');
+        }
+    }
+    redirect('planung_view.php?schedule_id=' . $schedule_id . '&revision_id=' . $revision_id . '&week=' . $week_monday->format('Y-m-d'));
+}
+
 // Holidays
 $stmt = $pdo->prepare('SELECT holiday_date, name FROM public_holidays WHERE school_year_id=? AND holiday_date BETWEEN ? AND ?');
 $stmt->execute([$schedule['school_year_id'], $week_dates[0], $week_dates[4]]);
@@ -100,13 +135,22 @@ foreach ($rows as $r) $emp_shifts_all[(int)$r['employee_id']][] = $r;
 
 // Schedule entries with time info
 $stmt = $pdo->prepare(
-    'SELECT employee_id, entry_date, hours, pause_minuten, time_start, time_end, is_vacation_period
+    'SELECT employee_id, entry_date, hours, pause_minuten, time_start, time_end, is_vacation_period, location_id
      FROM schedule_entries WHERE revision_id=? AND entry_date BETWEEN ? AND ?'
 );
 $stmt->execute([$revision_id, $week_dates[0], $week_dates[4]]);
 $entry_map = [];
 foreach ($stmt->fetchAll() as $e) {
     $entry_map[$e['employee_id']][$e['entry_date']] = $e;
+}
+
+// Locations (Zuteilung) + per-employee preferences
+$locations  = $pdo->query('SELECT * FROM locations ORDER BY sort_order, id')->fetchAll();
+$loc_by_id  = [];
+foreach ($locations as $loc) { $loc_by_id[(int)$loc['id']] = $loc; }
+$emp_loc_pref_map = [];
+foreach ($employees as $emp) {
+    $emp_loc_pref_map[(int)$emp['id']] = get_employee_location_preferences($pdo, (int)$emp['id']);
 }
 
 $de_days = ['Mo', 'Di', 'Mi', 'Do', 'Fr'];
@@ -169,6 +213,19 @@ require __DIR__ . '/templates/header.php';
            target="_blank" class="btn btn-sm btn-outline-danger">
             <i class="bi bi-file-earmark-pdf-fill"></i> PDF Woche
         </a>
+
+        <?php if (has_role('editor','admin') && !empty($locations)): ?>
+        <form method="post" action="planung_view.php" class="d-inline"
+              onsubmit="return confirm('Orte für alle geplanten Einsätze dieser Woche zufällig zuteilen? Bereits gesetzte Orte werden überschrieben.');">
+            <?= csrf_input() ?>
+            <input type="hidden" name="action" value="zufall_zuteilen">
+            <input type="hidden" name="schedule_id" value="<?= $schedule_id ?>">
+            <input type="hidden" name="revision_id" value="<?= $revision_id ?>">
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-shuffle"></i> Orte zufällig zuteilen
+            </button>
+        </form>
+        <?php endif; ?>
 
         <a href="planung.php" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrow-left"></i> Übersicht
@@ -301,6 +358,38 @@ require __DIR__ . '/templates/header.php';
                         <?php endif; ?>
                         <?php if ($is_ferien): ?>
                             <div class="text-warning-emphasis" style="font-size:0.7rem;">Ferien</div>
+                        <?php endif; ?>
+                        <?php if (!empty($locations)):
+                            $cur_loc = isset($entry['location_id']) && $entry['location_id'] !== null
+                                ? ($loc_by_id[(int)$entry['location_id']] ?? null) : null;
+                        ?>
+                            <?php if ($can_edit): ?>
+                            <div class="mt-1" onclick="event.stopPropagation();">
+                                <select class="form-select form-select-sm loc-select"
+                                        style="font-size:0.7rem;padding:1px 18px 1px 4px;height:auto;<?= $cur_loc ? 'background-color:'.h($cur_loc['color']).';color:#fff;' : '' ?>"
+                                        data-revision-id="<?= $revision_id ?>"
+                                        data-employee-id="<?= $eid ?>"
+                                        data-date="<?= h($wd) ?>"
+                                        data-pref="<?= h(implode(',', $emp_loc_pref_map[$eid] ?? [])) ?>">
+                                    <option value="">— Ort —</option>
+                                    <?php foreach ($locations as $loc):
+                                        $is_pref = in_array((int)$loc['id'], $emp_loc_pref_map[$eid] ?? [], true);
+                                    ?>
+                                        <option value="<?= (int)$loc['id'] ?>"
+                                                data-color="<?= h($loc['color']) ?>"
+                                                <?= $cur_loc && (int)$cur_loc['id'] === (int)$loc['id'] ? 'selected' : '' ?>>
+                                            <?= $is_pref ? '★ ' : '' ?><?= h($loc['name']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <?php elseif ($cur_loc): ?>
+                            <div class="mt-1">
+                                <span class="badge" style="background:<?= h($cur_loc['color']) ?>;font-size:0.65rem;">
+                                    <?= h($cur_loc['name']) ?>
+                                </span>
+                            </div>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </td>
 

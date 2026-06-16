@@ -147,6 +147,13 @@ CREATE TABLE IF NOT EXISTS schedule_revisions (
     FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS locations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    color VARCHAR(7) NOT NULL DEFAULT '#6c757d',
+    sort_order INT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS schedule_entries (
     id INT AUTO_INCREMENT PRIMARY KEY,
     revision_id INT NOT NULL,
@@ -157,8 +164,10 @@ CREATE TABLE IF NOT EXISTS schedule_entries (
     time_start TIME NULL,
     time_end TIME NULL,
     is_vacation_period TINYINT(1) DEFAULT 0,
+    location_id INT DEFAULT NULL,
     FOREIGN KEY (revision_id) REFERENCES schedule_revisions(id) ON DELETE CASCADE,
     FOREIGN KEY (employee_id) REFERENCES employees(id),
+    FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL,
     UNIQUE KEY unique_entry (revision_id, employee_id, entry_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -201,6 +210,14 @@ CREATE TABLE IF NOT EXISTS employee_shifts (
     PRIMARY KEY (employee_id, shift_id),
     FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
     FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS employee_location_preferences (
+    employee_id INT NOT NULL,
+    location_id INT NOT NULL,
+    PRIMARY KEY (employee_id, location_id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS login_log (
