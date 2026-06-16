@@ -8,6 +8,7 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/crypto.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/settings.php';
+require_once __DIR__ . '/includes/zuteilung.php';
 
 session_start_secure();
 require_auth();
@@ -40,9 +41,13 @@ $month_names  = ['','Januar','Februar','März','April','Mai','Juni','Juli','Augu
 // ── Load employees + shifts ────────────────────────────────────────────────
 $employees = $pdo->query('SELECT id, name_enc FROM employees WHERE is_active=1 ORDER BY id')->fetchAll();
 $emp_shifts_all = [];
-foreach ($pdo->query('SELECT es.employee_id, s.short_name, s.color FROM employee_shifts es JOIN shifts s ON s.id=es.shift_id ORDER BY s.sort_order')->fetchAll() as $r) {
+foreach ($pdo->query(
+    'SELECT es.employee_id, s.short_name, s.color, s.time_start, s.time_end
+     FROM employee_shifts es JOIN shifts s ON s.id=es.shift_id ORDER BY s.sort_order'
+)->fetchAll() as $r) {
     $emp_shifts_all[(int)$r['employee_id']][] = $r;
 }
+ensure_location_tables($pdo);
 
 // ── WOCHE ──────────────────────────────────────────────────────────────────
 if ($type === 'woche') {
@@ -83,6 +88,8 @@ if ($type === 'woche') {
     $stmt->execute([$revision_id, $week_dates[1], $week_dates[5]]);
     $entry_map = [];
     foreach ($stmt->fetchAll() as $e) $entry_map[$e['employee_id']][$e['entry_date']] = $e;
+
+    $location_segments = get_location_segments_map($pdo, $revision_id, $week_dates[1], $week_dates[5]);
 
     $pdf_title = 'Wochenplan KW ' . $week_monday->format('W/Y');
     $pdf_sub   = format_date_de($week_dates[1]) . ' – ' . format_date_de($week_dates[5]);
@@ -135,6 +142,8 @@ if ($type === 'monat') {
     $entry_map = [];
     foreach ($stmt->fetchAll() as $e) $entry_map[$e['employee_id']][$e['entry_date']] = $e;
 
+    $location_segments = get_location_segments_map($pdo, $revision_id, $first_date, $last_date);
+
     $mn = (int)$month_start_dt->format('n');
     $pdf_title = 'Monatsplan ' . $month_names[$mn] . ' ' . $month_start_dt->format('Y');
     $pdf_sub   = count($working_days) . ' Arbeitstage';
@@ -186,6 +195,9 @@ tfoot td:first-child { text-align: left; }
 .hours      { font-size: 9.5pt; font-weight: 700; }
 .pause-note { font-size: 7pt; color: #888; }
 .shift-badge { display: inline-block; border-radius: 3px; padding: 0 4px; font-size: 7.5pt; font-weight: 700; color: #fff; margin: 0 1px; }
+.loc-badge   { display: inline-block; border-radius: 3px; padding: 0 4px; font-size: 7pt;   font-weight: 600; color: #fff; margin: 1px; }
+.badge-row   { margin-top: 2px; }
+.loc-dot     { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin: 0 1px; }
 .print-btn {
     display: block; margin: 0 auto 16px; padding: 10px 28px; background: #5C3317;
     color: #DEB887; border: none; border-radius: 6px; font-size: 12pt; cursor: pointer;
@@ -261,15 +273,13 @@ tfoot td:first-child { text-align: left; }
         <tr>
             <td class="emp-cell">
                 <?= h($name) ?>
-                <?php foreach ($shifts as $sh): ?>
-                    <span class="shift-badge" style="background:<?= h($sh['color']) ?>;"><?= h($sh['short_name']) ?></span>
-                <?php endforeach; ?>
             </td>
             <?php foreach ($week_dates as $dow => $wd):
                 $is_h  = isset($holiday_map[$wd]);
                 $is_f  = isset($vacation_map[$wd]);
                 $is_u  = isset($emp_vac_map[$eid][$wd]);
                 $entry = $entry_map[$eid][$wd] ?? null;
+                $segs  = $location_segments[$eid][$wd] ?? [];
                 if ($entry) $row_total += (float)$entry['hours'];
             ?>
             <?php if ($is_h): ?>
@@ -286,6 +296,24 @@ tfoot td:first-child { text-align: left; }
                         <div class="pause-note">Pause: <?= (int)$entry['pause_minuten'] ?> min</div>
                     <?php endif; ?>
                     <?php if ($is_f): ?><div style="font-size:7pt;color:#806010;">Ferien</div><?php endif; ?>
+                    <?php if (!empty($shifts)): ?>
+                    <div class="badge-row">
+                        <?php foreach ($shifts as $sh): ?>
+                            <span class="shift-badge" style="background:<?= h($sh['color']) ?>;">
+                                <?= h($sh['short_name']) ?> <?= h(substr($sh['time_start'],0,5)) ?>–<?= h(substr($sh['time_end'],0,5)) ?>
+                            </span>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                    <?php if (!empty($segs)): ?>
+                    <div class="badge-row">
+                        <?php foreach ($segs as $seg): ?>
+                            <span class="loc-badge" style="background:<?= h($seg['location_color']) ?>;">
+                                <?= h($seg['location_name']) ?> <?= h(substr($seg['time_start'],0,5)) ?>–<?= h(substr($seg['time_end'],0,5)) ?>
+                            </span>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
                 </td>
             <?php elseif ($is_f): ?>
                 <td class="cell-ferien">Schulferien</td>
@@ -367,6 +395,7 @@ tfoot td:first-child { text-align: left; }
                 $is_f  = isset($vacation_map[$wd]);
                 $is_u  = isset($emp_vac_map[$eid][$wd]);
                 $entry = $entry_map[$eid][$wd] ?? null;
+                $segs  = $location_segments[$eid][$wd] ?? [];
                 if ($entry) $m_total += (float)$entry['hours'];
             ?>
             <?php if ($is_h): ?>
@@ -377,6 +406,13 @@ tfoot td:first-child { text-align: left; }
                 <td class="cell-work" style="padding:2px 1px;">
                     <div class="hours" style="font-size:8pt;"><?= h(number_format((float)$entry['hours'], 1, ',', '.')) ?></div>
                     <?php if ($is_f): ?><div style="font-size:6.5pt;color:#806010;">F</div><?php endif; ?>
+                    <?php if (!empty($segs)): ?>
+                    <div>
+                        <?php foreach ($segs as $seg): ?>
+                            <span class="loc-dot" style="background:<?= h($seg['location_color']) ?>;" title="<?= h($seg['location_name']) ?> <?= h(substr($seg['time_start'],0,5)) ?>–<?= h(substr($seg['time_end'],0,5)) ?>"></span>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
                 </td>
             <?php elseif ($is_f): ?>
                 <td class="cell-ferien" style="padding:1px;font-size:7pt;">F</td>
@@ -414,6 +450,7 @@ tfoot td:first-child { text-align: left; }
         <span style="background:#e8f4fd;color:#0a4c9c;">U = Urlaub (MA)</span>
         <span style="background:#eaf4e8;color:#1a5c1a;">Einsatz geplant</span>
         <span style="color:#aaa;">— = kein Einsatz</span>
+        <span style="color:#666;">Farbige Badges/Punkte = zugeteilte Schicht bzw. Ort</span>
     </div>
     <div class="pdf-footer">
         PlanBär v<?= APP_VERSION ?> &mdash; <?= h($einrichtung) ?> &mdash;
