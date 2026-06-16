@@ -228,3 +228,45 @@ function ensure_max_weekly_hours_column(PDO $pdo): void {
         $pdo->exec('ALTER TABLE employees ADD COLUMN max_weekly_hours DECIMAL(5,2) DEFAULT NULL');
     }
 }
+
+/**
+ * Lazily create `employee_shift_times` (so already-installed systems pick up
+ * per-employee, per-shift time overrides without a manual migration). A row
+ * with day_of_week = NULL is a "week" mode override (same time every day);
+ * a row with day_of_week 0-4 is a "day" mode override for that weekday.
+ */
+function ensure_employee_shift_times_table(PDO $pdo): void {
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS employee_shift_times (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            employee_id INT NOT NULL,
+            shift_id INT NOT NULL,
+            day_of_week TINYINT NULL,
+            time_start TIME NOT NULL,
+            time_end TIME NOT NULL,
+            FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+            FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE,
+            KEY idx_emp_shift (employee_id, shift_id, day_of_week)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+}
+
+/**
+ * Load an employee's per-shift time overrides.
+ * Returns ['week' => [shift_id => ['start'=>'HH:MM','end'=>'HH:MM']],
+ *          'day'  => [day_of_week => [shift_id => ['start'=>..,'end'=>..]]]]
+ */
+function get_employee_shift_times(PDO $pdo, int $employee_id): array {
+    $result = ['week' => [], 'day' => []];
+    $stmt = $pdo->prepare('SELECT shift_id, day_of_week, time_start, time_end FROM employee_shift_times WHERE employee_id = ?');
+    $stmt->execute([$employee_id]);
+    foreach ($stmt->fetchAll() as $row) {
+        $val = ['start' => substr($row['time_start'], 0, 5), 'end' => substr($row['time_end'], 0, 5)];
+        if ($row['day_of_week'] === null) {
+            $result['week'][(int)$row['shift_id']] = $val;
+        } else {
+            $result['day'][(int)$row['day_of_week']][(int)$row['shift_id']] = $val;
+        }
+    }
+    return $result;
+}

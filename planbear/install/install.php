@@ -215,6 +215,18 @@ CREATE TABLE IF NOT EXISTS employee_shifts (
     FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS employee_shift_times (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_id INT NOT NULL,
+    shift_id INT NOT NULL,
+    day_of_week TINYINT NULL COMMENT 'NULL = gleiche Zeit an allen Tagen (Wochen-Modus); 0-4 = Mo-Fr (Tage-Modus)',
+    time_start TIME NOT NULL,
+    time_end TIME NOT NULL,
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE,
+    KEY idx_emp_shift (employee_id, shift_id, day_of_week)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS employee_location_preferences (
     employee_id INT NOT NULL,
     location_id INT NOT NULL,

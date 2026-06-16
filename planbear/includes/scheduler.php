@@ -93,10 +93,10 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
     }
 
     // --- Shift assignments per employee ---
-    // [employee_id => [['time_start'=>'HH:MM','time_end'=>'HH:MM', 'name'=>...], ...]]
+    // [employee_id => [['shift_id'=>.., 'time_start'=>'HH:MM','time_end'=>'HH:MM', 'name'=>...], ...]]
     $emp_shifts = [];
     $stmt = $pdo->prepare(
-        'SELECT es.employee_id, s.time_start, s.time_end, s.name, s.short_name
+        'SELECT es.employee_id, s.id AS shift_id, s.time_start, s.time_end, s.name, s.short_name
          FROM employee_shifts es
          JOIN shifts s ON s.id = es.shift_id
          ORDER BY s.sort_order, s.id'
@@ -105,10 +105,28 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
     foreach ($stmt->fetchAll() as $row) {
         $emp_id_key = (int)$row['employee_id'];
         $emp_shifts[$emp_id_key][] = [
+            'shift_id'   => (int)$row['shift_id'],
             'time_start' => substr($row['time_start'], 0, 5),
             'time_end'   => substr($row['time_end'],   0, 5),
             'name'       => $row['name'],
         ];
+    }
+
+    // --- Per-employee, per-shift time overrides (set in 'week'/'day' mode
+    // on the Mitarbeiter form; let staff work their shifts at a personalized
+    // time instead of the shift's own global default). ---
+    // [employee_id][shift_id]['week'] = ['start'=>..,'end'=>..]
+    // [employee_id][shift_id]['day'][day_of_week] = ['start'=>..,'end'=>..]
+    $shift_time_overrides = [];
+    $stmt = $pdo->prepare('SELECT employee_id, shift_id, day_of_week, time_start, time_end FROM employee_shift_times');
+    $stmt->execute();
+    foreach ($stmt->fetchAll() as $row) {
+        $val = ['start' => substr($row['time_start'], 0, 5), 'end' => substr($row['time_end'], 0, 5)];
+        if ($row['day_of_week'] === null) {
+            $shift_time_overrides[(int)$row['employee_id']][(int)$row['shift_id']]['week'] = $val;
+        } else {
+            $shift_time_overrides[(int)$row['employee_id']][(int)$row['shift_id']]['day'][(int)$row['day_of_week']] = $val;
+        }
     }
 
     // --- Public holidays as a date-string set ---
@@ -241,18 +259,31 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
 
                 if ($has_shifts) {
                     // ── Shift-based: sum all assigned shift durations ──────
+                    // In 'week'/'day' mode, an employee may have a personalized
+                    // time override per shift (set on the Mitarbeiter form);
+                    // fall back to the shift's own global time otherwise.
                     $total_hours = 0.0;
                     $t_start     = null;
                     $t_end       = null;
                     foreach ($emp_shift_list as $sh) {
-                        $sh_hours = time_to_hours($sh['time_start'], $sh['time_end']);
+                        $sh_start = $sh['time_start'];
+                        $sh_end   = $sh['time_end'];
+                        $override = $shift_time_overrides[$emp_id][$sh['shift_id']] ?? null;
+                        if ($time_mode === 'week' && isset($override['week'])) {
+                            $sh_start = $override['week']['start'];
+                            $sh_end   = $override['week']['end'];
+                        } elseif ($time_mode === 'day' && isset($override['day'][$day_idx])) {
+                            $sh_start = $override['day'][$day_idx]['start'];
+                            $sh_end   = $override['day'][$day_idx]['end'];
+                        }
+                        $sh_hours = time_to_hours($sh_start, $sh_end);
                         $total_hours += $sh_hours;
                         // Track earliest start and latest end for display
-                        if ($t_start === null || $sh['time_start'] < $t_start) {
-                            $t_start = $sh['time_start'];
+                        if ($t_start === null || $sh_start < $t_start) {
+                            $t_start = $sh_start;
                         }
-                        if ($t_end === null || $sh['time_end'] > $t_end) {
-                            $t_end = $sh['time_end'];
+                        if ($t_end === null || $sh_end > $t_end) {
+                            $t_end = $sh_end;
                         }
                     }
                     $hours_per_day = round($total_hours, 2);
@@ -327,6 +358,7 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
 function ensure_schedule_generation_schema(PDO $pdo): void {
     ensure_shift_slot_column($pdo);
     ensure_vacation_week_table($pdo);
+    ensure_employee_shift_times_table($pdo);
 }
 
 /**
