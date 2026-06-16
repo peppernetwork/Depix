@@ -39,7 +39,6 @@ function default_settings(): array {
         'fruehdienst_end'         => '13:00',
         'spaetdienst_start'       => '15:30',
         'spaetdienst_end'         => '17:30',
-        'ferien_standard_arbeit'  => '0',
         'planung_wochentage'      => '0,1,2,3,4',
         'planung_notiz'           => '',
         // Pausen

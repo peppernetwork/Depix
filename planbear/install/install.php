@@ -117,6 +117,17 @@ CREATE TABLE IF NOT EXISTS vacation_periods (
     FOREIGN KEY (school_year_id) REFERENCES school_years(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS vacation_period_weeks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    vacation_period_id INT NOT NULL,
+    week_number INT NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    is_work_period TINYINT(1) NOT NULL DEFAULT 0,
+    FOREIGN KEY (vacation_period_id) REFERENCES vacation_periods(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_period_week (vacation_period_id, week_number)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS schedules (
     id INT AUTO_INCREMENT PRIMARY KEY,
     school_year_id INT NOT NULL,

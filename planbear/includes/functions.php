@@ -109,3 +109,56 @@ function req_int(string $key, ?array $arr = null): ?int {
     }
     return (int)$arr[$key];
 }
+
+/**
+ * Split a date range into Monday-Friday school weeks, aligned the same way
+ * the scheduler iterates weeks over the school year.
+ * Returns a list of ['start' => 'Y-m-d', 'end' => 'Y-m-d'].
+ */
+function split_into_school_weeks(string $start_date, string $end_date): array {
+    $start = monday_of_week($start_date);
+    $end   = new DateTime($end_date);
+
+    $weeks  = [];
+    $cursor = clone $start;
+    while ($cursor <= $end) {
+        $fri = (clone $cursor)->modify('+4 days');
+        $weeks[] = ['start' => $cursor->format('Y-m-d'), 'end' => $fri->format('Y-m-d')];
+        $cursor->modify('+7 days');
+    }
+    return $weeks;
+}
+
+/**
+ * Lazily create the vacation_period_weeks table (so already-installed systems
+ * pick up this feature without a manual migration step).
+ */
+function ensure_vacation_week_table(PDO $pdo): void {
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS vacation_period_weeks (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            vacation_period_id INT NOT NULL,
+            week_number INT NOT NULL,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            is_work_period TINYINT(1) NOT NULL DEFAULT 0,
+            FOREIGN KEY (vacation_period_id) REFERENCES vacation_periods(id) ON DELETE CASCADE,
+            UNIQUE KEY unique_period_week (vacation_period_id, week_number)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+}
+
+/**
+ * Ensure week rows exist for a vacation period. Only inserts missing weeks;
+ * never overwrites an already-set is_work_period flag.
+ */
+function sync_vacation_period_weeks(PDO $pdo, array $vacation_period): void {
+    $weeks = split_into_school_weeks($vacation_period['start_date'], $vacation_period['end_date']);
+    $stmt = $pdo->prepare(
+        'INSERT IGNORE INTO vacation_period_weeks (vacation_period_id, week_number, start_date, end_date, is_work_period)
+         VALUES (?, ?, ?, ?, 0)'
+    );
+    foreach ($weeks as $i => $week) {
+        $stmt->execute([(int)$vacation_period['id'], $i + 1, $week['start'], $week['end']]);
+    }
+}

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/settings.php';
+require_once __DIR__ . '/functions.php';
 
 /**
  * Calculate hours from two HH:MM time strings. Returns 0 if invalid or negative.
@@ -110,10 +111,23 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
         $holidays[$row['holiday_date']] = true;
     }
 
-    // --- Vacation periods ---
-    $stmt = $pdo->prepare('SELECT start_date, end_date, is_work_period FROM vacation_periods WHERE school_year_id = ?');
+    // --- Vacation periods (with per-week work/non-work granularity) ---
+    ensure_vacation_week_table($pdo);
+    $stmt = $pdo->prepare('SELECT id, start_date, end_date, is_work_period FROM vacation_periods WHERE school_year_id = ?');
     $stmt->execute([$school_year_id]);
     $vacations = $stmt->fetchAll();
+
+    $vac_weeks = [];
+    if (!empty($vacations)) {
+        foreach ($vacations as $vac) {
+            sync_vacation_period_weeks($pdo, $vac); // backfill any missing week rows
+        }
+        $period_ids = array_column($vacations, 'id');
+        $in = implode(',', array_fill(0, count($period_ids), '?'));
+        $stmt = $pdo->prepare("SELECT start_date, end_date, is_work_period FROM vacation_period_weeks WHERE vacation_period_id IN ($in)");
+        $stmt->execute($period_ids);
+        $vac_weeks = $stmt->fetchAll();
+    }
 
     // --- Prepare insert statement ---
     $insert = $pdo->prepare(
@@ -153,11 +167,22 @@ function generate_schedule(PDO $pdo, int $revision_id, int $school_year_id): int
         $week_fri = (clone $cursor)->modify('+4 days')->format('Y-m-d');
         $in_vacation    = false;
         $is_work_period = false;
-        foreach ($vacations as $vac) {
-            if ($week_mon <= $vac['end_date'] && $week_fri >= $vac['start_date']) {
+        // Week-level flag takes priority (set per week in Systemeinstellungen).
+        foreach ($vac_weeks as $vw) {
+            if ($week_mon <= $vw['end_date'] && $week_fri >= $vw['start_date']) {
                 $in_vacation    = true;
-                $is_work_period = (bool)$vac['is_work_period'];
+                $is_work_period = (bool)$vw['is_work_period'];
                 break;
+            }
+        }
+        // Fallback to the whole-period flag if no week row matched (e.g. legacy data).
+        if (!$in_vacation) {
+            foreach ($vacations as $vac) {
+                if ($week_mon <= $vac['end_date'] && $week_fri >= $vac['start_date']) {
+                    $in_vacation    = true;
+                    $is_work_period = (bool)$vac['is_work_period'];
+                    break;
+                }
             }
         }
 

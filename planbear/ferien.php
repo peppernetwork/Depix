@@ -70,6 +70,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $stmt = $pdo->prepare('INSERT INTO vacation_periods (school_year_id, name, start_date, end_date, is_work_period) VALUES (?,?,?,?,?)');
             $stmt->execute([$sid, $vname, $vstart, $vend, $vwork]);
+            ensure_vacation_week_table($pdo);
+            sync_vacation_period_weeks($pdo, [
+                'id'         => (int)$pdo->lastInsertId(),
+                'start_date' => $vstart,
+                'end_date'   => $vend,
+            ]);
             flash('success', 'Ferienzeit hinzugefügt.');
         }
     }

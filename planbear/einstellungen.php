@@ -13,6 +13,26 @@ session_start_secure();
 require_auth(['admin']); // Only admins may change system settings
 
 $pdo = get_pdo();
+ensure_vacation_week_table($pdo);
+
+// ─── Load active school year + vacation periods with per-week breakdown ───
+$active_sy   = $pdo->query("SELECT * FROM school_years WHERE is_active=1 LIMIT 1")->fetch();
+$vac_periods = [];
+$known_week_ids = [];
+if ($active_sy) {
+    $stmt = $pdo->prepare('SELECT id, name, start_date, end_date FROM vacation_periods WHERE school_year_id = ? ORDER BY start_date');
+    $stmt->execute([$active_sy['id']]);
+    foreach ($stmt->fetchAll() as $p) {
+        sync_vacation_period_weeks($pdo, $p);
+        $wstmt = $pdo->prepare('SELECT id, week_number, start_date, end_date, is_work_period FROM vacation_period_weeks WHERE vacation_period_id = ? ORDER BY week_number');
+        $wstmt->execute([$p['id']]);
+        $p['weeks'] = $wstmt->fetchAll();
+        foreach ($p['weeks'] as $w) {
+            $known_week_ids[] = (int)$w['id'];
+        }
+        $vac_periods[] = $p;
+    }
+}
 
 // ─── POST: save settings ───────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -32,7 +52,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'betreuungszeit_end',
         'spaetdienst_start',
         'spaetdienst_end',
-        'ferien_standard_arbeit',
         'planung_notiz',
         'pause_dauer_minuten',
         'pause_ab_stunden',
@@ -85,14 +104,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
         foreach ($allowed as $key) {
             $val = trim($_POST[$key] ?? '');
-            if ($key === 'ferien_standard_arbeit') {
-                $val = isset($_POST[$key]) && $_POST[$key] === '1' ? '1' : '0';
-            }
             if ($key === 'pause_dauer_minuten') $val = (string)$pause_min;
             if ($key === 'pause_ab_stunden')    $val = number_format($pause_ab, 1, '.', '');
             if ($key === 'urlaub_standard_tage') $val = (string)$url_std;
             set_setting($pdo, $key, $val);
         }
+
+        // Per-week Ferien-Arbeitsplanung: a checked week counts as a working week.
+        $checked_weeks = array_map('intval', array_keys($_POST['vac_week'] ?? []));
+        $update_week = $pdo->prepare('UPDATE vacation_period_weeks SET is_work_period = ? WHERE id = ?');
+        foreach ($known_week_ids as $week_id) {
+            $update_week->execute([in_array($week_id, $checked_weeks, true) ? 1 : 0, $week_id]);
+        }
+
         flash('success', 'Einstellungen gespeichert.');
         redirect('einstellungen.php');
     } else {
@@ -232,24 +256,53 @@ require __DIR__ . '/templates/header.php';
             <i class="bi bi-calendar-check-fill"></i> Planungseinstellungen
         </div>
         <div class="card-body">
-            <div class="mb-3">
-                <div class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" role="switch"
-                           name="ferien_standard_arbeit" id="ferien_arbeit"
-                           value="1" <?= $s['ferien_standard_arbeit'] === '1' ? 'checked' : '' ?>>
-                    <label class="form-check-label fw-semibold" for="ferien_arbeit">
-                        Standardmäßig in den Ferien arbeiten
-                    </label>
-                </div>
-                <div class="form-text">
-                    Wenn aktiv, werden Ferien-Wochen als Arbeitszeitraum behandelt (sofern beim Mitarbeiter Ferienstunden &gt; 0).
-                </div>
-            </div>
-            <div class="mb-3">
+            <div class="mb-0">
                 <label class="form-label fw-semibold">Allgemeine Notiz zur Planung</label>
                 <textarea class="form-control" name="planung_notiz" rows="3" maxlength="1000"
                           placeholder="Interne Hinweise, die bei der Planungserstellung angezeigt werden…"><?= h($s['planung_notiz']) ?></textarea>
             </div>
+        </div>
+    </div>
+
+    <!-- ── Ferien-Arbeitsplanung ────────────────────────────────────────── -->
+    <div class="card pb-card mb-4" style="max-width:680px;">
+        <div class="card-header">
+            <i class="bi bi-umbrella-fill"></i> Ferien-Arbeitsplanung
+        </div>
+        <div class="card-body">
+            <?php if (!$active_sy): ?>
+                <p class="text-muted small mb-0">Kein aktives Schuljahr gefunden.</p>
+            <?php elseif (empty($vac_periods)): ?>
+                <p class="text-muted small mb-0">Keine Ferienzeiten für das aktive Schuljahr hinterlegt.</p>
+            <?php else: ?>
+                <p class="text-muted small mb-3">
+                    Pro Ferienwoche kann ein Haken gesetzt werden. Ist der Haken aktiv, zählt diese Woche
+                    als Arbeitswoche statt als Ferienzeit.
+                </p>
+                <?php foreach ($vac_periods as $vp): ?>
+                    <div class="mb-3 pb-3 border-bottom">
+                        <div class="fw-semibold mb-2">
+                            <?= h($vp['name']) ?>
+                            <span class="text-muted small">
+                                (<?= h(format_date_de($vp['start_date'])) ?> – <?= h(format_date_de($vp['end_date'])) ?>)
+                            </span>
+                        </div>
+                        <?php foreach ($vp['weeks'] as $w): ?>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch"
+                                       name="vac_week[<?= (int)$w['id'] ?>]" id="vac_week_<?= (int)$w['id'] ?>"
+                                       value="1" <?= $w['is_work_period'] ? 'checked' : '' ?>>
+                                <label class="form-check-label" for="vac_week_<?= (int)$w['id'] ?>">
+                                    Woche <?= (int)$w['week_number'] ?>
+                                    <span class="text-muted small">
+                                        (<?= h(format_date_de($w['start_date'])) ?> – <?= h(format_date_de($w['end_date'])) ?>)
+                                    </span>
+                                </label>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
     </div>
 
