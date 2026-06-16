@@ -148,6 +148,37 @@ body {
     border-right: 2px solid var(--pb-light);
 }
 
+/* Month schedule table (mirrors .pb-schedule-table: sticky header + frozen name column) */
+.pb-month-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #fff;
+}
+.pb-month-table .emp-name {
+    white-space: nowrap;
+    font-weight: 600;
+    background-color: #f8f2ec;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    border-right: 2px solid var(--pb-light);
+}
+
+/* Responsive column-width helpers for schedule tables: generous on desktop,
+   shrink on phones so more of the week/month fits before horizontal scroll
+   kicks in. */
+.pb-col-emp       { min-width: 140px; }
+.pb-col-day       { min-width: 110px; }
+.pb-col-total      { min-width: 70px; }
+.pb-col-emp-month { min-width: 130px; }
+.pb-col-total-month { min-width: 55px; }
+
+/* Smoother momentum scrolling for horizontally-scrollable tables on touch devices */
+.table-responsive {
+    -webkit-overflow-scrolling: touch;
+}
+
 /* Day badges */
 .day-badge {
     display: inline-block;
@@ -247,4 +278,31 @@ body {
     border-radius: 50px;
     font-size: 0.75rem;
     font-weight: 600;
+}
+
+/* ── Mobile / tablet tweaks (phones up to ~576px, tablets up to ~768px) ── */
+@media (max-width: 768px) {
+    .pb-login-title { font-size: 1.5rem; }
+    .pb-login-logo  { font-size: 2.2rem; }
+
+    /* Stat boxes and action cards already use Bootstrap's responsive grid
+       (col-6 ...); just tighten up spacing a bit on small screens. */
+    .pb-stat { padding: 0.9rem 1rem; }
+    .pb-stat .stat-value { font-size: 1.7rem; }
+
+    #pb-calendar { padding: 0.6rem; min-height: 420px; }
+}
+
+@media (max-width: 576px) {
+    /* Give schedule tables more breathing room before they need to scroll */
+    .pb-col-emp,
+    .pb-col-emp-month { min-width: 96px; }
+    .pb-col-day        { min-width: 84px; }
+    .pb-col-total,
+    .pb-col-total-month { min-width: 50px; }
+
+    .pb-schedule-table { font-size: 0.78rem; }
+
+    /* Reduce side gutters so content gets more usable width */
+    .container-fluid.px-4 { padding-left: 0.85rem !important; padding-right: 0.85rem !important; }
 }

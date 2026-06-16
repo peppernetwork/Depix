@@ -212,13 +212,17 @@ require __DIR__ . '/templates/header.php';
 <?php if (empty($working_days)): ?>
     <div class="alert alert-warning">Keine Arbeitstage in diesem Zeitraum (außerhalb des Schuljahres).</div>
 <?php else: ?>
+<div class="text-muted small mb-1 d-md-none">
+    <i class="bi bi-arrow-left-right"></i> Tabelle nach links/rechts wischen
+</div>
+
 <!-- Monthly schedule table (horizontal scroll) -->
 <div class="table-responsive">
     <table class="table pb-month-table table-bordered align-middle" style="font-size:0.78rem;min-width:<?= 150 + count($working_days) * 44 ?>px;">
         <thead>
             <!-- KW row -->
             <tr>
-                <th rowspan="2" style="min-width:130px;vertical-align:middle;">Mitarbeiter</th>
+                <th rowspan="2" class="pb-col-emp-month" style="vertical-align:middle;">Mitarbeiter</th>
                 <?php
                 $prev_kw = null;
                 $kw_colspan = 0;
@@ -239,7 +243,7 @@ require __DIR__ . '/templates/header.php';
                     KW&nbsp;<?= $kw ?>
                 </th>
                 <?php endforeach; ?>
-                <th rowspan="2" class="text-center" style="min-width:55px;vertical-align:middle;">∑ h</th>
+                <th rowspan="2" class="text-center pb-col-total-month" style="vertical-align:middle;">∑ h</th>
             </tr>
             <!-- Day row -->
             <tr>

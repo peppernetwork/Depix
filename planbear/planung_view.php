@@ -391,14 +391,18 @@ require __DIR__ . '/templates/header.php';
     <span class="badge bg-success bg-opacity-75">Einsatz geplant</span>
 </div>
 
+<div class="text-muted small mb-1 d-md-none">
+    <i class="bi bi-arrow-left-right"></i> Tabelle nach links/rechts wischen
+</div>
+
 <!-- Weekly schedule table -->
 <div class="table-responsive">
     <table class="table pb-schedule-table table-bordered align-middle">
         <thead>
             <tr>
-                <th style="min-width:140px;">Mitarbeiter</th>
+                <th class="pb-col-emp">Mitarbeiter</th>
                 <?php foreach ($week_dates as $i => $wd): ?>
-                <th class="text-center" style="min-width:110px;">
+                <th class="text-center pb-col-day">
                     <div class="fw-bold"><?= $de_days[$i] ?></div>
                     <div class="small"><?= h(format_date_de($wd)) ?></div>
                     <?php if (isset($holiday_map[$wd])): ?>
@@ -408,7 +412,7 @@ require __DIR__ . '/templates/header.php';
                     <?php endif; ?>
                 </th>
                 <?php endforeach; ?>
-                <th class="text-center" style="min-width:70px;">Gesamt</th>
+                <th class="text-center pb-col-total">Gesamt</th>
             </tr>
         </thead>
         <tbody>
