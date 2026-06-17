@@ -173,7 +173,7 @@ require __DIR__ . '/templates/header.php';
 </div>
 
 <!-- Month navigation -->
-<div class="d-flex align-items-center gap-3 mb-3">
+<div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
     <?php if ($prev_month >= (new DateTime($school_start->format('Y-m') . '-01'))): ?>
     <a href="planung_monat.php?schedule_id=<?= $schedule_id ?>&revision_id=<?= $revision_id ?>&month=<?= $prev_month->format('Y-m') ?>"
        class="btn btn-sm btn-pb-outline"><i class="bi bi-chevron-left"></i> Vormonat</a>

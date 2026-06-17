@@ -285,6 +285,9 @@ body {
     .pb-login-title { font-size: 1.5rem; }
     .pb-login-logo  { font-size: 2.2rem; }
 
+    /* Page headings shrink so long plan names don't blow out the header row */
+    h1 { font-size: 1.6rem; }
+
     /* Stat boxes and action cards already use Bootstrap's responsive grid
        (col-6 ...); just tighten up spacing a bit on small screens. */
     .pb-stat { padding: 0.9rem 1rem; }
@@ -294,6 +297,8 @@ body {
 }
 
 @media (max-width: 576px) {
+    h1 { font-size: 1.3rem; }
+
     /* Give schedule tables more breathing room before they need to scroll */
     .pb-col-emp,
     .pb-col-emp-month { min-width: 96px; }
@@ -302,6 +307,12 @@ body {
     .pb-col-total-month { min-width: 50px; }
 
     .pb-schedule-table { font-size: 0.78rem; }
+
+    /* Action badges inside schedule cells: keep legible minimum */
+    .pb-schedule-table .badge { font-size: 0.68rem; }
+
+    /* Small buttons in table action columns: tighter padding on phones */
+    .table-responsive .btn-sm { padding: 0.2rem 0.45rem; font-size: 0.78rem; }
 
     /* Reduce side gutters so content gets more usable width */
     .container-fluid.px-4 { padding-left: 0.85rem !important; padding-right: 0.85rem !important; }
